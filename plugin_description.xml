@@ -1,0 +1,9 @@
+<library path="lib/libompl_2d_rviz_visualizer_panel">
+  <class name="ompl_2d_rviz_visualizer/OMPL_ControlPanel"
+         type="ompl_2d_rviz_visualizer::OMPL_ControlPanel"
+         base_class_type="rviz::Panel">
+    <description>
+      A panel widget allowing control of the MoveIt pipeline
+    </description>
+  </class>
+</library>

@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>ompl_2d_rviz_visualizer</name>
+  <version>1.0.0</version>
+  <description>Plugin for visualizing ompl motion planning algorithms in 2D</description>
+
+  <maintainer email="mlsdphonethk@gmail.com">Phone Thiha Kyaw</maintainer>
+
+  <license>TODO</license>
+
+  <author email="mlsdphonethk@gmail.com">Phone Thiha Kyaw</author>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <depend>roscpp</depend>
+  <depend>nodelet</depend>
+  <depend>ompl</depend>
+  <depend>eigen_conversions</depend>
+  <depend>rviz</depend>
+  <depend>rviz_visual_tools</depend>
+
+  <export>
+    <nodelet plugin="${prefix}/nodelet_plugins.xml" />
+    <rviz plugin="${prefix}/plugin_description.xml"/>
+  </export>
+</package>

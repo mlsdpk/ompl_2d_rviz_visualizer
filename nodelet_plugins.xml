@@ -1,0 +1,3 @@
+<library path="lib/libompl_2d_rviz_visualizer_nodelet">
+  <class name="ompl_2d_rviz_visualizer/VisualizerNodelet" type="ompl_2d_rviz_visualizer::VisualizerNodelet" base_class_type="nodelet::Nodelet" />
+</library>
