@@ -66,6 +66,7 @@ qt_wrap_cpp(MOC_FILES
 # visualizer nodelet
 add_library(${PROJECT_NAME}_nodelet
   src/visualizer_nodelet.cpp
+  src/rviz_renderer.cpp
 )
 target_link_libraries(${PROJECT_NAME}_nodelet
   ${catkin_LIBRARIES}

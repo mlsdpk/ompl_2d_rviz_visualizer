@@ -7,6 +7,7 @@
 #include <ompl/geometric/planners/rrt/InformedRRTstar.h>
 #include <ompl/geometric/planners/rrt/RRTConnect.h>
 #include <ompl/geometric/planners/rrt/RRTstar.h>
+#include <ompl_2d_rviz_visualizer/rviz_renderer.h>
 #include <pluginlib/class_list_macros.h>
 #include <ros/ros.h>
 #include <rviz_visual_tools/rviz_visual_tools.h>
@@ -29,15 +30,14 @@ class VisualizerNodelet : public nodelet::Nodelet {
   void onInit() override {
     NODELET_DEBUG("initializing ompl_2d_rviz_visualizer nodelet...");
 
+    // initialize node handlers
     nh_ = getNodeHandle();
     mt_nh_ = getMTNodeHandle();
     private_nh_ = getPrivateNodeHandle();
 
-    visual_tools_ = std::make_shared<rviz_visual_tools::RvizVisualTools>(
+    // initialize rviz renderer object
+    rviz_renderer_ = std::make_shared<RvizRenderer>(
         "base_frame", "/rviz_visual_markers", mt_nh_);
-    visual_tools_->loadMarkerPub();
-    visual_tools_->deleteAllMarkers();
-    visual_tools_->enableBatchPublishing();
 
     /////////////////////////////////////////////////////////
     // ompl related
@@ -80,8 +80,7 @@ class VisualizerNodelet : public nodelet::Nodelet {
     ROS_INFO("Panel msg received: %d", msg.data);
 
     if (msg.data == 1) {
-      visual_tools_->deleteAllMarkers();
-      visual_tools_->trigger();
+      rviz_renderer_->deleteAllMarkers();
     } else if (msg.data == 2) {
       solution_found_ = false;
       rendering_finished_ = false;
@@ -91,7 +90,7 @@ class VisualizerNodelet : public nodelet::Nodelet {
 
   void planningTimerCB(const ros::WallTimerEvent& event) {
     if (enable_planning_) {
-      visual_tools_->deleteAllMarkers();
+      rviz_renderer_->deleteAllMarkers();
       // Create the termination condition
       double seconds = 0.1;
       ob::PlannerTerminationCondition ptc =
@@ -104,13 +103,12 @@ class VisualizerNodelet : public nodelet::Nodelet {
       goal.random();
 
       // show start and goal in rviz
-      visual_tools_->publishSphere(
-          stateToPoint(start), rviz_visual_tools::GREEN,
-          rviz_visual_tools::XXXLARGE, "plan_start_goal");
-      visual_tools_->publishSphere(stateToPoint(goal), rviz_visual_tools::RED,
-                                   rviz_visual_tools::XXXLARGE,
-                                   "plan_start_goal");
-      visual_tools_->trigger();
+      rviz_renderer_->renderState(start.get(), rviz_visual_tools::GREEN,
+                                  rviz_visual_tools::XXXLARGE,
+                                  "plan_start_goal");
+      rviz_renderer_->renderState(goal.get(), rviz_visual_tools::RED,
+                                  rviz_visual_tools::XXXLARGE,
+                                  "plan_start_goal");
 
       ss_->clear();
       ss_->clearStartStates();
@@ -131,14 +129,7 @@ class VisualizerNodelet : public nodelet::Nodelet {
 
   void renderingTimerCB(const ros::WallTimerEvent& event) {
     if (solution_found_ && !rendering_finished_) {
-      // publish path
-      ss_->getSolutionPath().interpolate();
-
-      publish2DPath(ss_->getSolutionPath(), rviz_visual_tools::PURPLE, 0.05,
-                    "final_solution");
-      visual_tools_->trigger();
-
-      // publish graph
+      // render graph
       const ob::PlannerDataPtr planner_data(
           std::make_shared<ob::PlannerData>(si_));
       ss_->getPlannerData(*planner_data);
@@ -149,105 +140,19 @@ class VisualizerNodelet : public nodelet::Nodelet {
       ROS_INFO("Number of vertices: %d", planner_data->numVertices());
       ROS_INFO("Number of edges: %d", planner_data->numEdges());
 
-      for (std::size_t vertex_id = 1; vertex_id < planner_data->numVertices();
-           ++vertex_id) {
-        ob::PlannerDataVertex* vertex = &planner_data->getVertex(vertex_id);
-        auto this_vertex = stateToPointMsg(vertex->getState());
+      rviz_renderer_->renderGraph(planner_data, rviz_visual_tools::BLUE, 0.01);
 
-        // Get the out edges from the current vertex
-        std::vector<unsigned int> edge_list;
-        planner_data->getEdges(vertex_id, edge_list);
+      // render path
+      ss_->getSolutionPath().interpolate();
 
-        // Now loop through each edge
-        for (std::vector<unsigned int>::const_iterator edge_it =
-                 edge_list.begin();
-             edge_it != edge_list.end(); ++edge_it) {
-          // Convert vertex id to next coordinates
-          ob::PlannerDataVertex* v = &planner_data->getVertex(*edge_it);
-          auto next_vertex = stateToPointMsg(v->getState());
-
-          visual_tools_->publishLine(this_vertex, next_vertex,
-                                     rviz_visual_tools::BLUE,
-                                     rviz_visual_tools::SMALL);
-        }
-      }
-      visual_tools_->trigger();
+      rviz_renderer_->renderPath(ss_->getSolutionPath(),
+                                 rviz_visual_tools::PURPLE, 0.05,
+                                 "final_solution");
       rendering_finished_ = true;
     }
   }
 
  private:
-  Eigen::Vector3d stateToPoint(const ob::ScopedState<> state) {
-    return stateToPoint(state.get());
-  }
-
-  Eigen::Vector3d stateToPoint(const ob::State* state) {
-    if (!state) {
-      ROS_FATAL_NAMED("ompl_example_2d", "No state found for vertex");
-      exit(1);
-    }
-
-    // Convert to RealVectorStateSpace
-    const ob::RealVectorStateSpace::StateType* real_state =
-        static_cast<const ob::RealVectorStateSpace::StateType*>(state);
-
-    // Create point
-    Eigen::Vector3d temp_eigen_point_;
-    temp_eigen_point_.x() = real_state->values[0];
-    temp_eigen_point_.y() = real_state->values[1];
-    temp_eigen_point_.z() = 0.0;
-
-    return temp_eigen_point_;
-  }
-
-  geometry_msgs::Point stateToPointMsg(const ob::State* state) {
-    if (!state) {
-      ROS_FATAL_NAMED("ompl_example_2d", "No state found for vertex");
-      exit(1);
-    }
-
-    // Convert to RealVectorStateSpace
-    const ob::RealVectorStateSpace::StateType* real_state =
-        static_cast<const ob::RealVectorStateSpace::StateType*>(state);
-
-    // Create point
-    geometry_msgs::Point temp_point;
-    temp_point.x = real_state->values[0];
-    temp_point.y = real_state->values[1];
-    temp_point.z = 0.0;
-
-    return temp_point;
-  }
-
-  bool publish2DPath(const og::PathGeometric& path,
-                     const rviz_visual_tools::colors& color,
-                     const double thickness, const std::string& ns) {
-    // Error check
-    if (path.getStateCount() <= 0) {
-      ROS_WARN_STREAM_NAMED("ompl_example_2d", "No states found in path");
-      return false;
-    }
-
-    // Initialize first vertex
-    Eigen::Vector3d prev_vertex = stateToPoint(path.getState(0));
-    Eigen::Vector3d this_vertex;
-
-    // Convert path coordinates
-    for (std::size_t i = 1; i < path.getStateCount(); ++i) {
-      // Get current coordinates
-      this_vertex = stateToPoint(path.getState(i));
-
-      // Create line
-      visual_tools_->publishCylinder(prev_vertex, this_vertex, color, thickness,
-                                     ns);
-
-      // Save these coordinates for next line
-      prev_vertex = this_vertex;
-    }
-
-    return true;
-  }
-
   // ROS related
   // node handles
   ros::NodeHandle nh_;
@@ -263,7 +168,8 @@ class VisualizerNodelet : public nodelet::Nodelet {
   ros::WallTimer planning_timer_;
   ros::WallTimer rendering_timer_;
 
-  rviz_visual_tools::RvizVisualToolsPtr visual_tools_;
+  // rendering stuffs
+  RvizRendererPtr rviz_renderer_;
 
   // ompl related
   ob::StateSpacePtr space_;
