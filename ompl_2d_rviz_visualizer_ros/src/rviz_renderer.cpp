@@ -1,12 +1,12 @@
-#include <ompl_2d_rviz_visualizer/rviz_renderer.h>
+#include <ompl_2d_rviz_visualizer_ros/rviz_renderer.h>
 
-namespace ompl_2d_rviz_visualizer {
+namespace ompl_2d_rviz_visualizer_ros {
 
 RvizRenderer::RvizRenderer(const std::string& base_frame,
-                           const std::string& marker_topic,
-                           ros::NodeHandle nh) {
+                           const std::string& marker_topic, ros::NodeHandle nh)
+    : base_frame_{base_frame} {
   visual_tools_ =
-      std::make_shared<rvt::RvizVisualTools>(base_frame, marker_topic, nh);
+      std::make_shared<rvt::RvizVisualTools>(base_frame_, marker_topic, nh);
   visual_tools_->loadMarkerPub();
   visual_tools_->deleteAllMarkers();
   visual_tools_->enableBatchPublishing();
@@ -20,9 +20,17 @@ bool RvizRenderer::deleteAllMarkers() {
 }
 
 bool RvizRenderer::renderState(const ob::State* state, const rvt::colors& color,
-                               const rvt::scales& scale,
-                               const std::string& ns) {
-  visual_tools_->publishSphere(stateToPoint(state), color, scale, ns);
+                               const rvt::scales& scale, const std::string& ns,
+                               std::size_t id) {
+  visual_tools_->publishSphere(stateToPoint(state), color, scale, ns, id);
+  return visual_tools_->trigger();
+}
+
+bool RvizRenderer::renderState(const Eigen::Vector3d& point,
+                               const rvt::colors& color,
+                               const rvt::scales& scale, const std::string& ns,
+                               std::size_t id) {
+  visual_tools_->publishSphere(point, color, scale, ns, id);
   return visual_tools_->trigger();
 }
 
@@ -53,7 +61,8 @@ bool RvizRenderer::renderPath(const og::PathGeometric& path,
 }
 
 bool RvizRenderer::renderGraph(const ob::PlannerDataPtr planner_data,
-                               const rvt::colors& color, const double radius) {
+                               const rvt::colors& color, const double radius,
+                               const std::string& ns) {
   graph_msgs::GeometryGraph graph;
 
   for (std::size_t vertex_id = 0; vertex_id < planner_data->numVertices();
@@ -68,7 +77,9 @@ bool RvizRenderer::renderGraph(const ob::PlannerDataPtr planner_data,
     planner_data->getEdges(vertex_id, edge_msg.node_ids);
     graph.edges.push_back(edge_msg);
   }
+
   visual_tools_->publishGraph(graph, color, radius);
+
   return visual_tools_->trigger();
 }
 
@@ -109,4 +120,4 @@ geometry_msgs::Point RvizRenderer::stateToPointMsg(const ob::State* state) {
   return temp_point;
 }
 
-}  // namespace ompl_2d_rviz_visualizer
+}  // namespace ompl_2d_rviz_visualizer_ros

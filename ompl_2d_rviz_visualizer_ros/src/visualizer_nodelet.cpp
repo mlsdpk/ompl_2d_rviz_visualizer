@@ -7,7 +7,8 @@
 #include <ompl/geometric/planners/rrt/InformedRRTstar.h>
 #include <ompl/geometric/planners/rrt/RRTConnect.h>
 #include <ompl/geometric/planners/rrt/RRTstar.h>
-#include <ompl_2d_rviz_visualizer/rviz_renderer.h>
+#include <ompl_2d_rviz_visualizer_msgs/State.h>
+#include <ompl_2d_rviz_visualizer_ros/rviz_renderer.h>
 #include <pluginlib/class_list_macros.h>
 #include <ros/ros.h>
 #include <rviz_visual_tools/rviz_visual_tools.h>
@@ -21,7 +22,7 @@
 namespace ob = ompl::base;
 namespace og = ompl::geometric;
 
-namespace ompl_2d_rviz_visualizer {
+namespace ompl_2d_rviz_visualizer_ros {
 class VisualizerNodelet : public nodelet::Nodelet {
  public:
   VisualizerNodelet() {}
@@ -44,6 +45,8 @@ class VisualizerNodelet : public nodelet::Nodelet {
     space_ = std::make_shared<ob::RealVectorStateSpace>(2u);
 
     // set the bounds for the R^2
+    // currently bounds are hardcoded
+    // later we'll use occupancy grid maps to generate these bounds
     ob::RealVectorBounds bounds(2);
     bounds.setLow(-5);
     bounds.setHigh(5);
@@ -53,8 +56,14 @@ class VisualizerNodelet : public nodelet::Nodelet {
     ss_ = std::make_shared<og::SimpleSetup>(space_);
     si_ = ss_->getSpaceInformation();
 
-    ss_->setPlanner(ob::PlannerPtr(std::make_shared<og::RRTstar>(si_)));
+    start_state_ = std::make_shared<ob::ScopedState<>>(space_);
+    goal_state_ = std::make_shared<ob::ScopedState<>>(space_);
+
+    // custom State Validity Checker class need to be implemented which uses
+    // occupancy grid maps for collison checking
     ss_->setStateValidityChecker([](const ob::State* state) { return true; });
+
+    ss_->setPlanner(ob::PlannerPtr(std::make_shared<og::RRTstar>(si_)));
 
     path_length_objective_ =
         std::make_shared<ob::PathLengthOptimizationObjective>(si_);
@@ -67,6 +76,12 @@ class VisualizerNodelet : public nodelet::Nodelet {
     // subscriber for rviz panel
     rviz_panel_sub_ = nh_.subscribe("/ompl_2d_rviz_visualizer_control_panel", 1,
                                     &VisualizerNodelet::rvizPanelCB, this);
+
+    rviz_panel_start_state_sub_ = nh_.subscribe(
+        "/start_state", 1, &VisualizerNodelet::rvizPanelStartStateCB, this);
+
+    rviz_panel_goal_state_sub_ = nh_.subscribe(
+        "/goal_state", 1, &VisualizerNodelet::rvizPanelGoalStateCB, this);
 
     // timers
     planning_timer_ = mt_nh_.createWallTimer(
@@ -88,33 +103,46 @@ class VisualizerNodelet : public nodelet::Nodelet {
     }
   }
 
+  void rvizPanelStartStateCB(const ompl_2d_rviz_visualizer_msgs::State& msg) {
+    ob::ScopedState<> start(space_);
+    // Convert to RealVectorStateSpace
+    const ob::RealVectorStateSpace::StateType* real_state =
+        static_cast<const ob::RealVectorStateSpace::StateType*>(start.get());
+    real_state->values[0] = msg.x;
+    real_state->values[1] = msg.y;
+    rviz_renderer_->renderState(start.get(), rviz_visual_tools::GREEN,
+                                rviz_visual_tools::XXXLARGE,
+                                "start_goal_states", 1);
+    (*start_state_)[0] = msg.x;
+    (*start_state_)[1] = msg.y;
+  }
+
+  void rvizPanelGoalStateCB(const ompl_2d_rviz_visualizer_msgs::State& msg) {
+    ob::ScopedState<> goal(space_);
+    // Convert to RealVectorStateSpace
+    const ob::RealVectorStateSpace::StateType* real_state =
+        static_cast<const ob::RealVectorStateSpace::StateType*>(goal.get());
+    real_state->values[0] = msg.x;
+    real_state->values[1] = msg.y;
+    rviz_renderer_->renderState(goal.get(), rviz_visual_tools::RED,
+                                rviz_visual_tools::XXXLARGE,
+                                "start_goal_states", 2);
+    (*goal_state_)[0] = msg.x;
+    (*goal_state_)[1] = msg.y;
+  }
+
   void planningTimerCB(const ros::WallTimerEvent& event) {
     if (enable_planning_) {
-      rviz_renderer_->deleteAllMarkers();
       // Create the termination condition
-      double seconds = 0.1;
+      double seconds = 0.01;
       ob::PlannerTerminationCondition ptc =
-          ob::timedPlannerTerminationCondition(seconds, 0.01);
-
-      // Create random start and goal space
-      ob::ScopedState<> start(space_);
-      ob::ScopedState<> goal(space_);
-      start.random();
-      goal.random();
-
-      // show start and goal in rviz
-      rviz_renderer_->renderState(start.get(), rviz_visual_tools::GREEN,
-                                  rviz_visual_tools::XXXLARGE,
-                                  "plan_start_goal");
-      rviz_renderer_->renderState(goal.get(), rviz_visual_tools::RED,
-                                  rviz_visual_tools::XXXLARGE,
-                                  "plan_start_goal");
+          ob::timedPlannerTerminationCondition(seconds, 0.005);
 
       ss_->clear();
       ss_->clearStartStates();
 
       // set the start and goal states
-      ss_->setStartAndGoalStates(start, goal);
+      ss_->setStartAndGoalStates(*start_state_, *goal_state_);
 
       // attempt to solve the problem within x seconds of planning time
       ob::PlannerStatus solved;
@@ -140,7 +168,8 @@ class VisualizerNodelet : public nodelet::Nodelet {
       ROS_INFO("Number of vertices: %d", planner_data->numVertices());
       ROS_INFO("Number of edges: %d", planner_data->numEdges());
 
-      rviz_renderer_->renderGraph(planner_data, rviz_visual_tools::BLUE, 0.01);
+      rviz_renderer_->renderGraph(planner_data, rviz_visual_tools::BLUE, 0.01,
+                                  "planner_graph");
 
       // render path
       ss_->getSolutionPath().interpolate();
@@ -161,6 +190,8 @@ class VisualizerNodelet : public nodelet::Nodelet {
 
   // subscribers
   ros::Subscriber rviz_panel_sub_;
+  ros::Subscriber rviz_panel_start_state_sub_;
+  ros::Subscriber rviz_panel_goal_state_sub_;
 
   // publishers
 
@@ -177,12 +208,15 @@ class VisualizerNodelet : public nodelet::Nodelet {
   ob::SpaceInformationPtr si_;
   std::shared_ptr<ob::PathLengthOptimizationObjective> path_length_objective_;
 
+  ob::ScopedStatePtr start_state_;
+  ob::ScopedStatePtr goal_state_;
+
   // flags
   std::atomic_bool enable_planning_;
   std::atomic_bool solution_found_;
   std::atomic_bool rendering_finished_;
 };
-}  // namespace ompl_2d_rviz_visualizer
+}  // namespace ompl_2d_rviz_visualizer_ros
 
-PLUGINLIB_EXPORT_CLASS(ompl_2d_rviz_visualizer::VisualizerNodelet,
+PLUGINLIB_EXPORT_CLASS(ompl_2d_rviz_visualizer_ros::VisualizerNodelet,
                        nodelet::Nodelet)

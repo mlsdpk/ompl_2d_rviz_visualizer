@@ -1,0 +1,14 @@
+<launch>
+
+    <arg name="nodelet_manager" default="ompl_2d_rviz_visualizer_nodelet_manager"/>
+
+    <!-- rviz configuration path -->
+    <arg name="rvizconfig" default="$(find ompl_2d_rviz_visualizer_ros)/config/visualizer.rviz" /> 
+
+    <!-- rivz -->
+    <node name="rviz" pkg="rviz" type="rviz" args="-d $(arg rvizconfig)" required="true" output="screen"/>
+
+    <node pkg="nodelet" type="nodelet" name="$(arg nodelet_manager)" args="manager" output="screen"/>
+    <node pkg="nodelet" type="nodelet" name="ompl_2d_rviz_visualizer_nodelet" args="load ompl_2d_rviz_visualizer_ros/VisualizerNodelet $(arg nodelet_manager)"/>
+
+</launch> 

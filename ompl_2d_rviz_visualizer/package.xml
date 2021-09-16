@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>ompl_2d_rviz_visualizer</name>
+  <version>1.0.0</version>
+  <description>The ompl_2d_rviz_visualizer package</description>
+
+  <maintainer email="mlsdphonethk@gmail.com">Phone Thiha Kyaw</maintainer>
+  <author email="mlsdphonethk@gmail.com">Phone Thiha Kyaw</author>
+
+  <license>TODO</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <export>
+    <metapackage/>
+  </export>
+</package>

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0.2)
-project(ompl_2d_rviz_visualizer)
+project(ompl_2d_rviz_visualizer_ros)
 
 # Default to C++14
 if(NOT CMAKE_CXX_STANDARD)
@@ -11,6 +11,7 @@ set(${PROJECT_NAME}_CATKIN_DEPS
   roscpp
   rviz_visual_tools
   rviz
+  ompl_2d_rviz_visualizer_msgs
 )
 
 find_package(ompl REQUIRED)

@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>ompl_2d_rviz_visualizer</name>
+  <name>ompl_2d_rviz_visualizer_ros</name>
   <version>1.0.0</version>
   <description>Plugin for visualizing ompl motion planning algorithms in 2D</description>
 
@@ -18,6 +18,7 @@
   <depend>eigen_conversions</depend>
   <depend>rviz</depend>
   <depend>rviz_visual_tools</depend>
+  <depend>ompl_2d_rviz_visualizer_msgs</depend>
 
   <export>
     <nodelet plugin="${prefix}/nodelet_plugins.xml" />
