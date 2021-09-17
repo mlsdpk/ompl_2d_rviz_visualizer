@@ -7,14 +7,34 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QGroupBox>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
+#include <QRadioButton>
+#include <QString>
 #include <QStringList>
+#include <QVBoxLayout>
 #include <random>
 
 namespace ompl_2d_rviz_visualizer_ros {
 
 static const QStringList START_GOAL_COMBO_BOX_ITEMS = {
     "Generate Random Point", "Type Manually", "Rviz Clicked Point Tool (WIP)"};
+
+static const QStringList PLANNERS = {"<Not specified>", "RRT-CONNECT", "RRT*"};
+
+enum PLANNERS_IDS { INVALID, RRT_CONNECT, RRT_STAR };
+
+// hardcoded for now
+// TODO: this must be created in the class constructor by reading the
+// configuration file
+static const std::map<QString, double> RRT_CONNECT_PARAMETERS{
+    {"maxDistance_", 0.0}};
+
+static const std::map<QString, double> RRT_STAR_PARAMETERS{
+    {"maxDistance_", 0.0}, {"rewireFactor_", 0.0}, {"goalBias_", 0.0}};
 
 enum StartGoalComboBox { Random, Manual, Clicked };
 
@@ -29,20 +49,22 @@ class OMPL_ControlPanel : public rviz::Panel {
  public Q_SLOTS:
 
  protected Q_SLOTS:
-  void startCheckBoxStateChanged(int state);
-  void goalCheckBoxStateChanged(int state);
+  void startCheckBoxStateChanged(bool checked);
+  void goalCheckBoxStateChanged(bool checked);
   void startComboBoxActivated(int index);
   void goalComboBoxActivated(int index);
+  void plannerComboBoxActivated(int index);
   void btn_start_clicked();
   void btn_goal_clicked();
   void reset();
   void plan();
 
  protected:
+  bool updatePlannerParamsLayoutList(unsigned int id);
   void generateRandomPoint(double &x, double &y);
 
-  QCheckBox *start_check_box_;
-  QCheckBox *goal_check_box_;
+  QRadioButton *start_check_box_;
+  QRadioButton *goal_check_box_;
   QComboBox *start_combo_box_;
   QComboBox *goal_combo_box_;
   QDoubleSpinBox *start_x_spin_box_;
@@ -51,6 +73,11 @@ class OMPL_ControlPanel : public rviz::Panel {
   QDoubleSpinBox *goal_y_spin_box_;
   QPushButton *btn_start_;
   QPushButton *btn_goal_;
+
+  QComboBox *planner_combo_box_;
+  QComboBox *planner_params_combo_box_;
+  QList<QHBoxLayout *> planner_params_layout_list_;
+  QVBoxLayout *planner_params_v_layout_;
 
   QPushButton *btn_reset_;
   QPushButton *btn_plan_;

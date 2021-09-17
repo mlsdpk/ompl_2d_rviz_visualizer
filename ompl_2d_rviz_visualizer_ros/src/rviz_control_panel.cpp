@@ -2,20 +2,16 @@
 
 #include <std_msgs/UInt8.h>
 
-#include <QHBoxLayout>
-#include <QLabel>
-#include <QVBoxLayout>
-
 namespace ompl_2d_rviz_visualizer_ros {
 OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent) : rviz::Panel(parent) {
   ////////////////////
-  // Start group box
+  // Start layout
   ////////////////////
   QHBoxLayout* start_hlayout = new QHBoxLayout;
 
-  start_check_box_ = new QCheckBox("Start", this);
-  connect(start_check_box_, SIGNAL(stateChanged(int)), this,
-          SLOT(startCheckBoxStateChanged(int)));
+  start_check_box_ = new QRadioButton("Start", this);
+  connect(start_check_box_, SIGNAL(toggled(bool)), this,
+          SLOT(startCheckBoxStateChanged(bool)));
 
   start_combo_box_ = new QComboBox(this);
   start_combo_box_->addItems(START_GOAL_COMBO_BOX_ITEMS);
@@ -49,13 +45,13 @@ OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent) : rviz::Panel(parent) {
   ////////////////////
 
   ////////////////////
-  // Goal group box
+  // Goal layout
   ////////////////////
   QHBoxLayout* goal_hlayout = new QHBoxLayout;
 
-  goal_check_box_ = new QCheckBox("Goal", this);
-  connect(goal_check_box_, SIGNAL(stateChanged(int)), this,
-          SLOT(goalCheckBoxStateChanged(int)));
+  goal_check_box_ = new QRadioButton("Goal", this);
+  connect(goal_check_box_, SIGNAL(toggled(bool)), this,
+          SLOT(goalCheckBoxStateChanged(bool)));
 
   goal_combo_box_ = new QComboBox(this);
   goal_combo_box_->addItems(START_GOAL_COMBO_BOX_ITEMS);
@@ -88,6 +84,36 @@ OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent) : rviz::Panel(parent) {
   btn_goal_->setEnabled(false);
   ////////////////////
 
+  /////////////////////////////
+  // Start and Goal Group Box
+  /////////////////////////////
+  QGroupBox* query_gp_box = new QGroupBox(QString("Query"));
+  QVBoxLayout* query_v_layout = new QVBoxLayout;
+  query_v_layout->addLayout(start_hlayout);
+  query_v_layout->addLayout(goal_hlayout);
+  query_gp_box->setLayout(query_v_layout);
+  /////////////////////////////
+
+  ////////////////////////////////////////
+  // Planner related layout
+  ////////////////////////////////////////
+  planner_combo_box_ = new QComboBox;
+  planner_combo_box_->addItems(PLANNERS);
+  connect(planner_combo_box_, SIGNAL(activated(int)), this,
+          SLOT(plannerComboBoxActivated(int)));
+
+  QGroupBox* planner_params_gp_box = new QGroupBox(QString("Parameters"));
+  planner_params_v_layout_ = new QVBoxLayout;
+  planner_params_gp_box->setLayout(planner_params_v_layout_);
+
+  QVBoxLayout* planner_vlayout = new QVBoxLayout;
+  planner_vlayout->addWidget(planner_combo_box_);
+  planner_vlayout->addWidget(planner_params_gp_box);
+
+  QGroupBox* planner_gp_box = new QGroupBox(QString("Planner"));
+  planner_gp_box->setLayout(planner_vlayout);
+  ////////////////////////////////////////
+
   /////////////////////////////////////////
   // Horizontal Layout for reset and plan
   /////////////////////////////////////////
@@ -106,8 +132,8 @@ OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent) : rviz::Panel(parent) {
 
   // Final vertical layout
   QVBoxLayout* layout = new QVBoxLayout;
-  layout->addLayout(start_hlayout);
-  layout->addLayout(goal_hlayout);
+  layout->addWidget(query_gp_box);
+  layout->addWidget(planner_gp_box);
   layout->addLayout(hlayout);
 
   setLayout(layout);
@@ -140,8 +166,8 @@ OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent) : rviz::Panel(parent) {
   btn_plan_->setEnabled(true);
 }
 
-void OMPL_ControlPanel::startCheckBoxStateChanged(int state) {
-  if (state == Qt::Checked) {
+void OMPL_ControlPanel::startCheckBoxStateChanged(bool checked) {
+  if (checked) {
     start_combo_box_->setEnabled(true);
     btn_start_->setEnabled(true);
 
@@ -150,7 +176,7 @@ void OMPL_ControlPanel::startCheckBoxStateChanged(int state) {
       start_x_spin_box_->setEnabled(true);
       start_y_spin_box_->setEnabled(true);
     }
-  } else if (state == Qt::Unchecked) {
+  } else {
     start_combo_box_->setEnabled(false);
     start_x_spin_box_->setEnabled(false);
     start_y_spin_box_->setEnabled(false);
@@ -158,8 +184,8 @@ void OMPL_ControlPanel::startCheckBoxStateChanged(int state) {
   }
 }
 
-void OMPL_ControlPanel::goalCheckBoxStateChanged(int state) {
-  if (state == Qt::Checked) {
+void OMPL_ControlPanel::goalCheckBoxStateChanged(bool checked) {
+  if (checked) {
     goal_combo_box_->setEnabled(true);
     btn_goal_->setEnabled(true);
 
@@ -168,7 +194,7 @@ void OMPL_ControlPanel::goalCheckBoxStateChanged(int state) {
       goal_x_spin_box_->setEnabled(true);
       goal_y_spin_box_->setEnabled(true);
     }
-  } else if (state == Qt::Unchecked) {
+  } else {
     goal_combo_box_->setEnabled(false);
     goal_x_spin_box_->setEnabled(false);
     goal_y_spin_box_->setEnabled(false);
@@ -200,6 +226,44 @@ void OMPL_ControlPanel::goalComboBoxActivated(int index) {
     goal_x_spin_box_->setEnabled(false);
     goal_y_spin_box_->setEnabled(false);
   }
+}
+
+void OMPL_ControlPanel::plannerComboBoxActivated(int index) {
+  // delete the parameters
+  for (const auto layout : planner_params_layout_list_) {
+    QLayoutItem* item;
+    while ((item = layout->takeAt(0)) != nullptr) {
+      delete item->widget();
+      delete item;
+    }
+    delete layout;
+  }
+  planner_params_layout_list_.clear();
+  updatePlannerParamsLayoutList(static_cast<unsigned>(index));
+}
+
+bool OMPL_ControlPanel::updatePlannerParamsLayoutList(unsigned int id) {
+  if (id == PLANNERS_IDS::INVALID) return false;
+
+  const std::map<QString, double>* params;
+  if (id == PLANNERS_IDS::RRT_CONNECT) {
+    params = &RRT_CONNECT_PARAMETERS;
+  } else if (id == PLANNERS_IDS::RRT_STAR) {
+    params = &RRT_STAR_PARAMETERS;
+  }
+  for (auto it = params->begin(); it != params->end(); it++) {
+    QLabel* label = new QLabel(it->first);
+    QDoubleSpinBox* spin_box = new QDoubleSpinBox;
+    spin_box->setValue(it->second);
+    QHBoxLayout* params_hlayout = new QHBoxLayout;
+    params_hlayout->addWidget(label);
+    params_hlayout->addWidget(spin_box);
+    planner_params_layout_list_.append(params_hlayout);
+  }
+  for (const auto layout : planner_params_layout_list_) {
+    planner_params_v_layout_->addLayout(layout);
+  }
+  return true;
 }
 
 void OMPL_ControlPanel::generateRandomPoint(double& x, double& y) {
