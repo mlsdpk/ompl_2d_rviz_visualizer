@@ -3,7 +3,11 @@
 #include <std_msgs/UInt8.h>
 
 namespace ompl_2d_rviz_visualizer_ros {
-OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent) : rviz::Panel(parent) {
+OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent)
+    : rviz::Panel(parent),
+      nh_{"ompl_2d_rviz_visualizer_nodelet/ompl_planner_parameters"},
+      prv_nh_{"~ompl_controlpanel"},
+      planner_id_{0} {
   ////////////////////
   // Start layout
   ////////////////////
@@ -153,14 +157,29 @@ OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent) : rviz::Panel(parent) {
   goal_x_spin_box_->setRange(min_bound_x_, max_bound_x_);
   goal_y_spin_box_->setRange(min_bound_y_, max_bound_y_);
 
-  data_publisher_ = nh_.advertise<std_msgs::UInt8>(
-      "/ompl_2d_rviz_visualizer_control_panel", 1);
+  // hardcoded planner related parameters
+  // TODO: Read from the config yaml file or parameter server and
+  // store in the vector
+  std::map<QString, std::variant<double, int, bool>> rrt_connect_params;
+  rrt_connect_params["maxDistance"] = 0.0;
+  rrt_connect_params["addIntermediateStates"] = false;
+
+  std::map<QString, std::variant<double, int, bool>> rrt_star_params;
+  rrt_star_params["maxDistance"] = 0.0;
+  rrt_star_params["rewireFactor"] = 0.0;
+  rrt_star_params["goalBias"] = 0.0;
+
+  planner_params_.push_back(rrt_connect_params);
+  planner_params_.push_back(rrt_star_params);
+  ////////////////////////////////////////////////////////
+
+  data_publisher_ = prv_nh_.advertise<std_msgs::UInt8>("plan_request", 1);
 
   start_state_publisher_ =
-      nh_.advertise<ompl_2d_rviz_visualizer_msgs::State>("/start_state", 1);
+      prv_nh_.advertise<ompl_2d_rviz_visualizer_msgs::State>("start_state", 1);
 
   goal_state_publisher_ =
-      nh_.advertise<ompl_2d_rviz_visualizer_msgs::State>("/goal_state", 1);
+      prv_nh_.advertise<ompl_2d_rviz_visualizer_msgs::State>("goal_state", 1);
 
   btn_reset_->setEnabled(false);
   btn_plan_->setEnabled(true);
@@ -229,6 +248,8 @@ void OMPL_ControlPanel::goalComboBoxActivated(int index) {
 }
 
 void OMPL_ControlPanel::plannerComboBoxActivated(int index) {
+  // update planner id
+  planner_id_ = index;
   // delete the parameters
   for (const auto layout : planner_params_layout_list_) {
     QLayoutItem* item;
@@ -245,19 +266,17 @@ void OMPL_ControlPanel::plannerComboBoxActivated(int index) {
 bool OMPL_ControlPanel::updatePlannerParamsLayoutList(unsigned int id) {
   if (id == PLANNERS_IDS::INVALID) return false;
 
-  const std::map<QString, double>* params;
-  if (id == PLANNERS_IDS::RRT_CONNECT) {
-    params = &RRT_CONNECT_PARAMETERS;
-  } else if (id == PLANNERS_IDS::RRT_STAR) {
-    params = &RRT_STAR_PARAMETERS;
-  }
-  for (auto it = params->begin(); it != params->end(); it++) {
+  for (auto it = planner_params_[id - 1].begin();
+       it != planner_params_[id - 1].end(); it++) {
     QLabel* label = new QLabel(it->first);
-    QDoubleSpinBox* spin_box = new QDoubleSpinBox;
-    spin_box->setValue(it->second);
+    // TODO: Custom validators need to be implemented for line edits
+    QLineEdit* line_edit = new QLineEdit;
+    line_edit->setFixedWidth(150);
+    line_edit->setText(
+        QString::fromStdString(std::visit(AnyGet{}, it->second)));
     QHBoxLayout* params_hlayout = new QHBoxLayout;
     params_hlayout->addWidget(label);
-    params_hlayout->addWidget(spin_box);
+    params_hlayout->addWidget(line_edit);
     planner_params_layout_list_.append(params_hlayout);
   }
   for (const auto layout : planner_params_layout_list_) {
@@ -325,6 +344,23 @@ void OMPL_ControlPanel::plan() {
   ROS_INFO_STREAM_NAMED("ompl_control_panel", "PLAN button pressed.");
 
   if (start_state_exists_ && goal_state_exists_) {
+    // read the parameters and update the parameter server
+    for (const auto layout : planner_params_layout_list_) {
+      auto param_name = static_cast<QLabel*>(layout->itemAt(0)->widget())
+                            ->text()
+                            .toStdString();
+      const auto param_val =
+          static_cast<QLineEdit*>(layout->itemAt(1)->widget())->text();
+      param_name = PLANNERS[planner_id_].toStdString() + "/" + param_name;
+
+      if (param_val == "true")
+        nh_.setParam(param_name, true);
+      else if (param_val == "false")
+        nh_.setParam(param_name, false);
+      else
+        nh_.setParam(param_name, std::stod(param_val.toStdString()));
+    }
+
     std_msgs::UInt8 msg;
     msg.data = 2;
     data_publisher_.publish(msg);
@@ -352,6 +388,10 @@ void OMPL_ControlPanel::save(rviz::Config config) const {
 
 void OMPL_ControlPanel::load(const rviz::Config& config) {
   rviz::Panel::load(config);
+}
+
+std::string to_string(const std::variant<double, int, bool>& in) {
+  return std::visit(AnyGet{}, in);
 }
 }  // namespace ompl_2d_rviz_visualizer_ros
 

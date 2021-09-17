@@ -1,0 +1,8 @@
+ompl_planner_parameters:
+  rrt_connect:
+    maxDistance: 0.0
+
+  rrt_star:
+    maxDistance: 0.0
+    rewireFactor: 0.0
+    goalBias: 0.0

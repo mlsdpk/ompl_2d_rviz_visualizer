@@ -40,16 +40,24 @@ class VisualizerNodelet : public nodelet::Nodelet {
     rviz_renderer_ = std::make_shared<RvizRenderer>(
         "base_frame", "/rviz_visual_markers", mt_nh_);
 
-    /////////////////////////////////////////////////////////
     // ompl related
     space_ = std::make_shared<ob::RealVectorStateSpace>(2u);
 
+    ////////////////////////////////////////////////////////////////
     // set the bounds for the R^2
     // currently bounds are hardcoded
     // later we'll use occupancy grid maps to generate these bounds
+    // TODO (Sai): Read map yaml file and store the map data into occupancy grid
+    // map. Based on the map, set the bounds for ompl accordingly. Min and max
+    // Bounds must be set for each dimension
+    // e.g., bounds.setLow(unsigned int index, double value)
+
     ob::RealVectorBounds bounds(2);
     bounds.setLow(-5);
     bounds.setHigh(5);
+
+    ////////////////////////////////////////////////////////////////
+
     space_->as<ob::RealVectorStateSpace>()->setBounds(bounds);
     space_->setup();
 
@@ -61,27 +69,36 @@ class VisualizerNodelet : public nodelet::Nodelet {
 
     // custom State Validity Checker class need to be implemented which uses
     // occupancy grid maps for collison checking
+
+    ///////////////////////////////////////////////////////////////////////////
+    // TODO (Sai): Collision checker class need to be initialized here.
+    // collison checking function must be passed into setStateValidityChecker.
+    // The function accepts pointer to ompl state (const ob::State* state)
+
     ss_->setStateValidityChecker([](const ob::State* state) { return true; });
+
+    ///////////////////////////////////////////////////////////////////////////
 
     ss_->setPlanner(ob::PlannerPtr(std::make_shared<og::RRTstar>(si_)));
 
     path_length_objective_ =
         std::make_shared<ob::PathLengthOptimizationObjective>(si_);
-    /////////////////////////////////////////////////////////
 
     enable_planning_ = false;
     solution_found_ = false;
     rendering_finished_ = false;
 
     // subscriber for rviz panel
-    rviz_panel_sub_ = nh_.subscribe("/ompl_2d_rviz_visualizer_control_panel", 1,
+    rviz_panel_sub_ = nh_.subscribe("/rviz/ompl_controlpanel/plan_request", 1,
                                     &VisualizerNodelet::rvizPanelCB, this);
 
-    rviz_panel_start_state_sub_ = nh_.subscribe(
-        "/start_state", 1, &VisualizerNodelet::rvizPanelStartStateCB, this);
+    rviz_panel_start_state_sub_ =
+        nh_.subscribe("/rviz/ompl_controlpanel/start_state", 1,
+                      &VisualizerNodelet::rvizPanelStartStateCB, this);
 
-    rviz_panel_goal_state_sub_ = nh_.subscribe(
-        "/goal_state", 1, &VisualizerNodelet::rvizPanelGoalStateCB, this);
+    rviz_panel_goal_state_sub_ =
+        nh_.subscribe("/rviz/ompl_controlpanel/goal_state", 1,
+                      &VisualizerNodelet::rvizPanelGoalStateCB, this);
 
     // timers
     planning_timer_ = mt_nh_.createWallTimer(

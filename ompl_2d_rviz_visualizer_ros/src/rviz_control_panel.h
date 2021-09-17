@@ -1,5 +1,4 @@
 #pragma once
-
 #include <ompl_2d_rviz_visualizer_msgs/State.h>
 #include <ros/ros.h>
 #include <rviz/panel.h>
@@ -17,24 +16,23 @@
 #include <QStringList>
 #include <QVBoxLayout>
 #include <random>
+#include <variant>
 
 namespace ompl_2d_rviz_visualizer_ros {
 
 static const QStringList START_GOAL_COMBO_BOX_ITEMS = {
     "Generate Random Point", "Type Manually", "Rviz Clicked Point Tool (WIP)"};
 
-static const QStringList PLANNERS = {"<Not specified>", "RRT-CONNECT", "RRT*"};
+static const QStringList PLANNERS = {"<Not specified>", "rrt_connect",
+                                     "rrt_star"};
+
+struct AnyGet {
+  std::string operator()(bool value) { return value ? "true" : "false"; }
+  std::string operator()(int value) { return std::to_string(value); }
+  std::string operator()(double value) { return std::to_string(value); }
+};
 
 enum PLANNERS_IDS { INVALID, RRT_CONNECT, RRT_STAR };
-
-// hardcoded for now
-// TODO: this must be created in the class constructor by reading the
-// configuration file
-static const std::map<QString, double> RRT_CONNECT_PARAMETERS{
-    {"maxDistance_", 0.0}};
-
-static const std::map<QString, double> RRT_STAR_PARAMETERS{
-    {"maxDistance_", 0.0}, {"rewireFactor_", 0.0}, {"goalBias_", 0.0}};
 
 enum StartGoalComboBox { Random, Manual, Clicked };
 
@@ -82,8 +80,13 @@ class OMPL_ControlPanel : public rviz::Panel {
   QPushButton *btn_reset_;
   QPushButton *btn_plan_;
 
+  std::vector<std::map<QString, std::variant<double, int, bool>>>
+      planner_params_;
+  int planner_id_;
+
   // ROS related
   ros::NodeHandle nh_;
+  ros::NodeHandle prv_nh_;
   ros::Publisher data_publisher_;
   ros::Publisher start_state_publisher_;
   ros::Publisher goal_state_publisher_;
