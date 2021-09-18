@@ -12,6 +12,7 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QScrollArea>
 #include <QString>
 #include <QStringList>
 #include <QVBoxLayout>
@@ -58,6 +59,7 @@ class OMPL_ControlPanel : public rviz::Panel {
   void plan();
 
  protected:
+  void loadPlannerParameters();
   bool updatePlannerParamsLayoutList(unsigned int id);
   void generateRandomPoint(double &x, double &y);
 
@@ -87,7 +89,8 @@ class OMPL_ControlPanel : public rviz::Panel {
   // ROS related
   ros::NodeHandle nh_;
   ros::NodeHandle prv_nh_;
-  ros::Publisher data_publisher_;
+  ros::Publisher plan_request_publisher_;
+  ros::Publisher clear_request_publisher_;
   ros::Publisher start_state_publisher_;
   ros::Publisher goal_state_publisher_;
 

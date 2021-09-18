@@ -1,8 +1,22 @@
 ompl_planner_parameters:
   rrt_connect:
-    maxDistance: 0.0
+    intermediate_states: false
+    range: 0.0
 
   rrt_star:
-    maxDistance: 0.0
-    rewireFactor: 0.0
-    goalBias: 0.0
+    delay_collision_checking: true
+    focus_search: false
+    goal_bias: 0.05
+    informed_sampling: false
+    new_state_rejection: false
+    number_sampling_attempts: 100
+    ordered_sampling: false
+    ordering_batch_size: 1
+    prune_threshold: 0.05
+    pruned_measure: false
+    range: 0
+    rewire_factor: 1.1
+    sample_rejection: false
+    tree_pruning: false
+    use_admissible_heuristic: true
+    use_k_nearest: true

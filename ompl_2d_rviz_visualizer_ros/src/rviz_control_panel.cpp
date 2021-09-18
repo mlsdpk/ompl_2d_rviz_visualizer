@@ -1,6 +1,7 @@
 #include "rviz_control_panel.h"
 
-#include <std_msgs/UInt8.h>
+#include <ompl_2d_rviz_visualizer_msgs/ClearRequest.h>
+#include <ompl_2d_rviz_visualizer_msgs/PlanRequest.h>
 
 namespace ompl_2d_rviz_visualizer_ros {
 OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent)
@@ -106,16 +107,21 @@ OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent)
   connect(planner_combo_box_, SIGNAL(activated(int)), this,
           SLOT(plannerComboBoxActivated(int)));
 
-  QGroupBox* planner_params_gp_box = new QGroupBox(QString("Parameters"));
+  QScrollArea* scroll_area = new QScrollArea;
+  scroll_area->setWidgetResizable(true);
+  QWidget* temp = new QWidget;
+  scroll_area->setWidget(temp);
   planner_params_v_layout_ = new QVBoxLayout;
-  planner_params_gp_box->setLayout(planner_params_v_layout_);
+  temp->setLayout(planner_params_v_layout_);
 
   QVBoxLayout* planner_vlayout = new QVBoxLayout;
   planner_vlayout->addWidget(planner_combo_box_);
-  planner_vlayout->addWidget(planner_params_gp_box);
+  planner_vlayout->addWidget(new QLabel(QString("Parameters")));
+  planner_vlayout->addWidget(scroll_area);
 
   QGroupBox* planner_gp_box = new QGroupBox(QString("Planner"));
   planner_gp_box->setLayout(planner_vlayout);
+
   ////////////////////////////////////////
 
   /////////////////////////////////////////
@@ -157,23 +163,15 @@ OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent)
   goal_x_spin_box_->setRange(min_bound_x_, max_bound_x_);
   goal_y_spin_box_->setRange(min_bound_y_, max_bound_y_);
 
-  // hardcoded planner related parameters
-  // TODO: Read from the config yaml file or parameter server and
-  // store in the vector
-  std::map<QString, std::variant<double, int, bool>> rrt_connect_params;
-  rrt_connect_params["maxDistance"] = 0.0;
-  rrt_connect_params["addIntermediateStates"] = false;
+  loadPlannerParameters();
 
-  std::map<QString, std::variant<double, int, bool>> rrt_star_params;
-  rrt_star_params["maxDistance"] = 0.0;
-  rrt_star_params["rewireFactor"] = 0.0;
-  rrt_star_params["goalBias"] = 0.0;
+  plan_request_publisher_ =
+      prv_nh_.advertise<ompl_2d_rviz_visualizer_msgs::PlanRequest>(
+          "plan_request", 1);
 
-  planner_params_.push_back(rrt_connect_params);
-  planner_params_.push_back(rrt_star_params);
-  ////////////////////////////////////////////////////////
-
-  data_publisher_ = prv_nh_.advertise<std_msgs::UInt8>("plan_request", 1);
+  clear_request_publisher_ =
+      prv_nh_.advertise<ompl_2d_rviz_visualizer_msgs::ClearRequest>(
+          "clear_request", 1);
 
   start_state_publisher_ =
       prv_nh_.advertise<ompl_2d_rviz_visualizer_msgs::State>("start_state", 1);
@@ -183,6 +181,36 @@ OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent)
 
   btn_reset_->setEnabled(false);
   btn_plan_->setEnabled(true);
+}
+
+void OMPL_ControlPanel::loadPlannerParameters() {
+  std::vector<std::string> param_names;
+  nh_.getParamNames(param_names);
+  for (auto i = 1; i < PLANNERS.length(); ++i) {
+    std::map<QString, std::variant<double, int, bool>> planner_params;
+    for (const auto& n : param_names) {
+      std::size_t found;
+      if ((found = n.find(PLANNERS[i].toStdString())) != std::string::npos) {
+        XmlRpc::XmlRpcValue xml_param;
+        nh_.getParam(n, xml_param);
+
+        if (xml_param.getType() == XmlRpc::XmlRpcValue::TypeDouble) {
+          planner_params[QString::fromStdString(
+              n.substr(found + PLANNERS[i].toStdString().length() + 1))] =
+              static_cast<double>(xml_param);
+        } else if (xml_param.getType() == XmlRpc::XmlRpcValue::TypeInt) {
+          planner_params[QString::fromStdString(
+              n.substr(found + PLANNERS[i].toStdString().length() + 1))] =
+              static_cast<int>(xml_param);
+        } else if (xml_param.getType() == XmlRpc::XmlRpcValue::TypeBoolean) {
+          planner_params[QString::fromStdString(
+              n.substr(found + PLANNERS[i].toStdString().length() + 1))] =
+              static_cast<bool>(xml_param);
+        }
+      }
+    }
+    planner_params_.push_back(planner_params);
+  }
 }
 
 void OMPL_ControlPanel::startCheckBoxStateChanged(bool checked) {
@@ -328,9 +356,9 @@ void OMPL_ControlPanel::btn_goal_clicked() {
 void OMPL_ControlPanel::reset() {
   ROS_INFO_STREAM_NAMED("ompl_control_panel", "RESET button pressed.");
 
-  std_msgs::UInt8 msg;
-  msg.data = 1;
-  data_publisher_.publish(msg);
+  ompl_2d_rviz_visualizer_msgs::ClearRequest msg;
+  msg.clear_graph = true;
+  clear_request_publisher_.publish(msg);
   btn_reset_->setEnabled(false);
   btn_plan_->setEnabled(true);
 
@@ -361,9 +389,9 @@ void OMPL_ControlPanel::plan() {
         nh_.setParam(param_name, std::stod(param_val.toStdString()));
     }
 
-    std_msgs::UInt8 msg;
-    msg.data = 2;
-    data_publisher_.publish(msg);
+    ompl_2d_rviz_visualizer_msgs::PlanRequest msg;
+    msg.planner_id = planner_id_;
+    plan_request_publisher_.publish(msg);
     btn_reset_->setEnabled(true);
     btn_plan_->setEnabled(false);
 
