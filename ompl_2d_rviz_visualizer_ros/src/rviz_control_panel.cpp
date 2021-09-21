@@ -1,14 +1,16 @@
 #include "rviz_control_panel.h"
 
-#include <ompl_2d_rviz_visualizer_msgs/ClearRequest.h>
-#include <ompl_2d_rviz_visualizer_msgs/PlanRequest.h>
+#include <ompl_2d_rviz_visualizer_msgs/Plan.h>
+#include <ompl_2d_rviz_visualizer_msgs/Reset.h>
+#include <ompl_2d_rviz_visualizer_msgs/State.h>
 
 namespace ompl_2d_rviz_visualizer_ros {
 OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent)
     : rviz::Panel(parent),
-      nh_{"ompl_2d_rviz_visualizer_nodelet/ompl_planner_parameters"},
+      nh_{"ompl_2d_rviz_visualizer_nodelet"},
       prv_nh_{"~ompl_controlpanel"},
-      planner_id_{0} {
+      planner_id_{PLANNERS_IDS::INVALID},
+      planning_obj_id_{PLANNING_OBJS_IDS::PATH_LENGTH} {
   ////////////////////
   // Start layout
   ////////////////////
@@ -43,6 +45,7 @@ OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent)
   start_hlayout->addLayout(start_y_hlayout);
   start_hlayout->addWidget(btn_start_);
 
+  start_check_box_->setChecked(true);
   start_combo_box_->setEnabled(false);
   start_x_spin_box_->setEnabled(false);
   start_y_spin_box_->setEnabled(false);
@@ -125,6 +128,26 @@ OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent)
   ////////////////////////////////////////
 
   /////////////////////////////////////////
+  // Planning objective and duration
+  /////////////////////////////////////////
+  planning_objective_combo_box_ = new QComboBox;
+  planning_objective_combo_box_->addItems(PLANNING_OBJS);
+  connect(planning_objective_combo_box_, SIGNAL(activated(int)), this,
+          SLOT(planningObjectiveComboBoxActivated(int)));
+
+  planning_duration_spin_box_ = new QDoubleSpinBox;
+  planning_duration_spin_box_->setMinimum(0.0);
+  planning_duration_spin_box_->setSingleStep(0.1);
+  planning_duration_spin_box_->setFixedWidth(150);
+
+  QHBoxLayout* planning_hlayout = new QHBoxLayout;
+  planning_hlayout->addWidget(new QLabel(QString("Planning objective:")));
+  planning_hlayout->addWidget(planning_objective_combo_box_);
+  planning_hlayout->addWidget(new QLabel(QString("Planning duration:")));
+  planning_hlayout->addWidget(planning_duration_spin_box_);
+  /////////////////////////////////////////
+
+  /////////////////////////////////////////
   // Horizontal Layout for reset and plan
   /////////////////////////////////////////
   btn_reset_ = new QPushButton(this);
@@ -144,9 +167,11 @@ OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent)
   QVBoxLayout* layout = new QVBoxLayout;
   layout->addWidget(query_gp_box);
   layout->addWidget(planner_gp_box);
+  layout->addLayout(planning_hlayout);
   layout->addLayout(hlayout);
 
   setLayout(layout);
+  startCheckBoxStateChanged(true);
   //////////////////////////////////////////////
 
   start_state_exists_ = false;
@@ -165,22 +190,30 @@ OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent)
 
   loadPlannerParameters();
 
-  plan_request_publisher_ =
-      prv_nh_.advertise<ompl_2d_rviz_visualizer_msgs::PlanRequest>(
-          "plan_request", 1);
-
-  clear_request_publisher_ =
-      prv_nh_.advertise<ompl_2d_rviz_visualizer_msgs::ClearRequest>(
-          "clear_request", 1);
-
-  start_state_publisher_ =
-      prv_nh_.advertise<ompl_2d_rviz_visualizer_msgs::State>("start_state", 1);
-
-  goal_state_publisher_ =
-      prv_nh_.advertise<ompl_2d_rviz_visualizer_msgs::State>("goal_state", 1);
-
   btn_reset_->setEnabled(false);
   btn_plan_->setEnabled(true);
+  ///////////////////////////////////////////////////////////////
+
+  // ROS related
+  plan_request_client_ =
+      nh_.serviceClient<ompl_2d_rviz_visualizer_msgs::Plan>("plan_request");
+
+  reset_request_client_ =
+      nh_.serviceClient<ompl_2d_rviz_visualizer_msgs::Reset>("reset_request");
+
+  start_state_setter_client_ =
+      nh_.serviceClient<ompl_2d_rviz_visualizer_msgs::State>("set_start_state");
+
+  goal_state_setter_client_ =
+      nh_.serviceClient<ompl_2d_rviz_visualizer_msgs::State>("set_goal_state");
+
+  ROS_INFO_STREAM_NAMED("Control Panel",
+                        "Waiting for service servers to be connected...");
+  plan_request_client_.waitForExistence();
+  reset_request_client_.waitForExistence();
+  start_state_setter_client_.waitForExistence();
+  goal_state_setter_client_.waitForExistence();
+  ROS_INFO_STREAM_NAMED("Control Panel", "Service servers found.");
 }
 
 void OMPL_ControlPanel::loadPlannerParameters() {
@@ -291,6 +324,10 @@ void OMPL_ControlPanel::plannerComboBoxActivated(int index) {
   updatePlannerParamsLayoutList(static_cast<unsigned>(index));
 }
 
+void OMPL_ControlPanel::planningObjectiveComboBoxActivated(int index) {
+  planning_obj_id_ = index;
+}
+
 bool OMPL_ControlPanel::updatePlannerParamsLayoutList(unsigned int id) {
   if (id == PLANNERS_IDS::INVALID) return false;
 
@@ -326,52 +363,70 @@ void OMPL_ControlPanel::btn_start_clicked() {
   // the point needs to be collision-free
   ompl_2d_rviz_visualizer_msgs::State msg;
   if (start_combo_box_->currentIndex() == Random) {
-    generateRandomPoint(msg.x, msg.y);
+    generateRandomPoint(msg.request.x, msg.request.y);
   } else if (start_combo_box_->currentIndex() == Manual) {
     //
   } else if (start_combo_box_->currentIndex() == Clicked) {
     //
   }
-  start_x_spin_box_->setValue(msg.x);
-  start_y_spin_box_->setValue(msg.y);
-  start_state_publisher_.publish(msg);
+  start_x_spin_box_->setValue(msg.request.x);
+  start_y_spin_box_->setValue(msg.request.y);
+  if (start_state_setter_client_.call(msg)) {
+    if (msg.response.success)
+      ROS_DEBUG("set_start_state service calling succeeded.");
+  } else {
+    ROS_ERROR("Failed to call set_start_state service.");
+    exit(-1);
+  }
   start_state_exists_ = true;
 }
 
 void OMPL_ControlPanel::btn_goal_clicked() {
   ompl_2d_rviz_visualizer_msgs::State msg;
   if (goal_combo_box_->currentIndex() == Random) {
-    generateRandomPoint(msg.x, msg.y);
+    generateRandomPoint(msg.request.x, msg.request.y);
   } else if (goal_combo_box_->currentIndex() == Manual) {
     //
   } else if (goal_combo_box_->currentIndex() == Clicked) {
     //
   }
-  goal_x_spin_box_->setValue(msg.x);
-  goal_y_spin_box_->setValue(msg.y);
-  goal_state_publisher_.publish(msg);
+  goal_x_spin_box_->setValue(msg.request.x);
+  goal_y_spin_box_->setValue(msg.request.y);
+  if (goal_state_setter_client_.call(msg)) {
+    if (msg.response.success)
+      ROS_DEBUG("set_goal_state service calling succeeded.");
+  } else {
+    ROS_ERROR("Failed to call set_goal_state service.");
+    exit(-1);
+  }
   goal_state_exists_ = true;
 }
 
 void OMPL_ControlPanel::reset() {
   ROS_INFO_STREAM_NAMED("ompl_control_panel", "RESET button pressed.");
 
-  ompl_2d_rviz_visualizer_msgs::ClearRequest msg;
-  msg.clear_graph = true;
-  clear_request_publisher_.publish(msg);
+  ompl_2d_rviz_visualizer_msgs::Reset msg;
+  msg.request.clear_graph = true;
+  if (reset_request_client_.call(msg)) {
+    if (msg.response.success) ROS_DEBUG("Reset Service calling succeeded.");
+  } else {
+    ROS_ERROR("Failed to call reset_request service.");
+    exit(-1);
+  }
   btn_reset_->setEnabled(false);
   btn_plan_->setEnabled(true);
 
   start_check_box_->setEnabled(true);
   goal_check_box_->setEnabled(true);
-  start_state_exists_ = false;
-  goal_state_exists_ = false;
+  start_check_box_->setChecked(true);
+  startCheckBoxStateChanged(true);
 }
 
 void OMPL_ControlPanel::plan() {
   ROS_INFO_STREAM_NAMED("ompl_control_panel", "PLAN button pressed.");
 
-  if (start_state_exists_ && goal_state_exists_) {
+  if (start_state_exists_ && goal_state_exists_ &&
+      planner_id_ != PLANNERS_IDS::INVALID) {
     // read the parameters and update the parameter server
     for (const auto layout : planner_params_layout_list_) {
       auto param_name = static_cast<QLabel*>(layout->itemAt(0)->widget())
@@ -379,7 +434,8 @@ void OMPL_ControlPanel::plan() {
                             .toStdString();
       const auto param_val =
           static_cast<QLineEdit*>(layout->itemAt(1)->widget())->text();
-      param_name = PLANNERS[planner_id_].toStdString() + "/" + param_name;
+      param_name = "ompl_planner_parameters/" +
+                   PLANNERS[planner_id_].toStdString() + "/" + param_name;
 
       if (param_val == "true")
         nh_.setParam(param_name, true);
@@ -389,9 +445,17 @@ void OMPL_ControlPanel::plan() {
         nh_.setParam(param_name, std::stod(param_val.toStdString()));
     }
 
-    ompl_2d_rviz_visualizer_msgs::PlanRequest msg;
-    msg.planner_id = planner_id_;
-    plan_request_publisher_.publish(msg);
+    ompl_2d_rviz_visualizer_msgs::Plan msg;
+    msg.request.planner_id = planner_id_;
+    msg.request.objective_id = planning_obj_id_;
+    msg.request.duration = planning_duration_spin_box_->value();
+    if (plan_request_client_.call(msg)) {
+      if (msg.response.success) ROS_DEBUG("Plan Service calling succeeded.");
+    } else {
+      ROS_ERROR("Failed to call plan_request service.");
+      exit(-1);
+    }
+
     btn_reset_->setEnabled(true);
     btn_plan_->setEnabled(false);
 
@@ -405,8 +469,6 @@ void OMPL_ControlPanel::plan() {
     goal_x_spin_box_->setEnabled(false);
     goal_y_spin_box_->setEnabled(false);
     btn_goal_->setEnabled(false);
-    start_check_box_->setChecked(false);
-    goal_check_box_->setChecked(false);
   }
 }
 

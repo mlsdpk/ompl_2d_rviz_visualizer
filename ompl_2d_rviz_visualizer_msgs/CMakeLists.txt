@@ -6,11 +6,11 @@ find_package(catkin REQUIRED COMPONENTS
   message_generation
 )
 
-add_message_files(
+add_service_files(
   FILES
-  State.msg
-  PlanRequest.msg
-  ClearRequest.msg
+  Plan.srv
+  Reset.srv
+  State.srv
 )
 
 generate_messages(

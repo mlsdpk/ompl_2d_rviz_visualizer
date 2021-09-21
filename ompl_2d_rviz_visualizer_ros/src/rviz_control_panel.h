@@ -1,5 +1,5 @@
 #pragma once
-#include <ompl_2d_rviz_visualizer_msgs/State.h>
+
 #include <ros/ros.h>
 #include <rviz/panel.h>
 
@@ -27,15 +27,20 @@ static const QStringList START_GOAL_COMBO_BOX_ITEMS = {
 static const QStringList PLANNERS = {"<Not specified>", "rrt_connect",
                                      "rrt_star"};
 
+static const QStringList PLANNING_OBJS = {"Minimum path length",
+                                          "Maximize minimum clearance"};
+
+enum START_GOAL_COMBO_BOX_IDS { Random, Manual, Clicked };
+
+enum PLANNERS_IDS { INVALID, RRT_CONNECT, RRT_STAR };
+
+enum PLANNING_OBJS_IDS { PATH_LENGTH, MAXMIN_CLEARANCE };
+
 struct AnyGet {
   std::string operator()(bool value) { return value ? "true" : "false"; }
   std::string operator()(int value) { return std::to_string(value); }
   std::string operator()(double value) { return std::to_string(value); }
 };
-
-enum PLANNERS_IDS { INVALID, RRT_CONNECT, RRT_STAR };
-
-enum StartGoalComboBox { Random, Manual, Clicked };
 
 class OMPL_ControlPanel : public rviz::Panel {
   Q_OBJECT
@@ -53,6 +58,7 @@ class OMPL_ControlPanel : public rviz::Panel {
   void startComboBoxActivated(int index);
   void goalComboBoxActivated(int index);
   void plannerComboBoxActivated(int index);
+  void planningObjectiveComboBoxActivated(int index);
   void btn_start_clicked();
   void btn_goal_clicked();
   void reset();
@@ -73,26 +79,19 @@ class OMPL_ControlPanel : public rviz::Panel {
   QDoubleSpinBox *goal_y_spin_box_;
   QPushButton *btn_start_;
   QPushButton *btn_goal_;
-
   QComboBox *planner_combo_box_;
   QComboBox *planner_params_combo_box_;
   QList<QHBoxLayout *> planner_params_layout_list_;
   QVBoxLayout *planner_params_v_layout_;
-
   QPushButton *btn_reset_;
   QPushButton *btn_plan_;
+  QComboBox *planning_objective_combo_box_;
+  QDoubleSpinBox *planning_duration_spin_box_;
 
   std::vector<std::map<QString, std::variant<double, int, bool>>>
       planner_params_;
   int planner_id_;
-
-  // ROS related
-  ros::NodeHandle nh_;
-  ros::NodeHandle prv_nh_;
-  ros::Publisher plan_request_publisher_;
-  ros::Publisher clear_request_publisher_;
-  ros::Publisher start_state_publisher_;
-  ros::Publisher goal_state_publisher_;
+  int planning_obj_id_;
 
   bool start_state_exists_;
   bool goal_state_exists_;
@@ -103,6 +102,14 @@ class OMPL_ControlPanel : public rviz::Panel {
   double max_bound_y_;
 
   std::mt19937 rn_gen_;
+
+  // ROS related
+  ros::NodeHandle nh_;
+  ros::NodeHandle prv_nh_;
+  ros::ServiceClient plan_request_client_;
+  ros::ServiceClient reset_request_client_;
+  ros::ServiceClient start_state_setter_client_;
+  ros::ServiceClient goal_state_setter_client_;
 };
 
 }  // namespace ompl_2d_rviz_visualizer_ros
