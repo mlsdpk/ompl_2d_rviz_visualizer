@@ -217,33 +217,55 @@ OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent)
 }
 
 void OMPL_ControlPanel::loadPlannerParameters() {
-  std::vector<std::string> param_names;
-  nh_.getParamNames(param_names);
+  std::vector<std::string> ros_param_names;
+  nh_.getParamNames(ros_param_names);
   for (auto i = 1; i < PLANNERS.length(); ++i) {
-    std::map<QString, std::variant<double, int, bool>> planner_params;
-    for (const auto& n : param_names) {
+    PlannerParameterList planner_param_list;
+    for (const auto& n : ros_param_names) {
       std::size_t found;
-      if ((found = n.find(PLANNERS[i].toStdString())) != std::string::npos) {
+      if ((found = n.find(PARAMETERS_NS)) != std::string::npos) {
+        if (n.find(PLANNERS[i].toStdString()) == std::string::npos) continue;
+
+        std::string ompl_param_name;
+        ompl_param_name = n.substr(found + PARAMETERS_NS.length() +
+                                   PLANNERS[i].toStdString().length() + 1);
+
+        // get the planner parameter
         XmlRpc::XmlRpcValue xml_param;
         nh_.getParam(n, xml_param);
 
-        if (xml_param.getType() == XmlRpc::XmlRpcValue::TypeDouble) {
-          planner_params[QString::fromStdString(
-              n.substr(found + PLANNERS[i].toStdString().length() + 1))] =
-              static_cast<double>(xml_param);
-        } else if (xml_param.getType() == XmlRpc::XmlRpcValue::TypeInt) {
-          planner_params[QString::fromStdString(
-              n.substr(found + PLANNERS[i].toStdString().length() + 1))] =
-              static_cast<int>(xml_param);
-        } else if (xml_param.getType() == XmlRpc::XmlRpcValue::TypeBoolean) {
-          planner_params[QString::fromStdString(
-              n.substr(found + PLANNERS[i].toStdString().length() + 1))] =
-              static_cast<bool>(xml_param);
-        }
+        // get the planner parameter range
+        std::string parameter_range_ros_param = PARAMETERS_RANGE_NS +
+                                                PLANNERS[i].toStdString() +
+                                                "/" + ompl_param_name;
+        std::string planner_param_range;
+        nh_.getParam(parameter_range_ros_param, planner_param_range);
+
+        // set planner parameter
+        PlannerParameter planner_param;
+        setPlannerParameter(planner_param, ompl_param_name, xml_param,
+                            planner_param_range);
+
+        planner_param_list.push_back(planner_param);
       }
     }
-    planner_params_.push_back(planner_params);
+    planners_param_list_.push_back(planner_param_list);
   }
+}
+
+void OMPL_ControlPanel::setPlannerParameter(PlannerParameter& param,
+                                            const std::string& name,
+                                            const XmlRpc::XmlRpcValue& value,
+                                            const std::string& range) {
+  param.name = name;
+  if (value.getType() == XmlRpc::XmlRpcValue::TypeDouble) {
+    param.value = static_cast<double>(value);
+  } else if (value.getType() == XmlRpc::XmlRpcValue::TypeInt) {
+    param.value = static_cast<int>(value);
+  } else if (value.getType() == XmlRpc::XmlRpcValue::TypeBoolean) {
+    param.value = static_cast<bool>(value);
+  }
+  param.range = range;
 }
 
 void OMPL_ControlPanel::startCheckBoxStateChanged(bool checked) {
@@ -331,19 +353,43 @@ void OMPL_ControlPanel::planningObjectiveComboBoxActivated(int index) {
 bool OMPL_ControlPanel::updatePlannerParamsLayoutList(unsigned int id) {
   if (id == PLANNERS_IDS::INVALID) return false;
 
-  for (auto it = planner_params_[id - 1].begin();
-       it != planner_params_[id - 1].end(); it++) {
-    QLabel* label = new QLabel(it->first);
-    // TODO: Custom validators need to be implemented for line edits
-    QLineEdit* line_edit = new QLineEdit;
-    line_edit->setFixedWidth(150);
-    line_edit->setText(
-        QString::fromStdString(std::visit(AnyGet{}, it->second)));
+  for (const auto& param : planners_param_list_[id - 1]) {
     QHBoxLayout* params_hlayout = new QHBoxLayout;
+    QLabel* label = new QLabel(QString::fromStdString(param.name));
     params_hlayout->addWidget(label);
-    params_hlayout->addWidget(line_edit);
+
+    // double spin box for doubles
+    if (const double* pval = std::get_if<double>(&param.value)) {
+      QDoubleSpinBox* param_widget = new QDoubleSpinBox;
+      double min, step, max;
+      get_range<double>(min, step, max, param.range);
+      param_widget->setRange(min, max);
+      param_widget->setValue(*pval);
+      param_widget->setSingleStep(step);
+      params_hlayout->addWidget(param_widget);
+    }
+    // spin box for ints
+    else if (const int* pval = std::get_if<int>(&param.value)) {
+      QSpinBox* param_widget = new QSpinBox;
+      int min, step, max;
+      get_range<int>(min, step, max, param.range);
+      param_widget->setRange(min, max);
+      param_widget->setStepType(QAbstractSpinBox::DefaultStepType);
+      param_widget->setValue(*pval);
+      param_widget->setSingleStep(step);
+      params_hlayout->addWidget(param_widget);
+    }
+    // combo box for booleans
+    else if (const bool* pval = std::get_if<bool>(&param.value)) {
+      QComboBox* param_widget = new QComboBox;
+      param_widget->addItems(COMBO_BOX_BOOLEAN_LIST);
+      param_widget->setCurrentIndex(*pval ? 1 : 0);
+      params_hlayout->addWidget(param_widget);
+    }
+
     planner_params_layout_list_.append(params_hlayout);
   }
+
   for (const auto layout : planner_params_layout_list_) {
     planner_params_v_layout_->addLayout(layout);
   }
@@ -432,17 +478,27 @@ void OMPL_ControlPanel::plan() {
       auto param_name = static_cast<QLabel*>(layout->itemAt(0)->widget())
                             ->text()
                             .toStdString();
-      const auto param_val =
-          static_cast<QLineEdit*>(layout->itemAt(1)->widget())->text();
       param_name = "ompl_planner_parameters/" +
                    PLANNERS[planner_id_].toStdString() + "/" + param_name;
-
-      if (param_val == "true")
-        nh_.setParam(param_name, true);
-      else if (param_val == "false")
-        nh_.setParam(param_name, false);
-      else
-        nh_.setParam(param_name, std::stod(param_val.toStdString()));
+      // get the widget type
+      std::string widget_type(
+          layout->itemAt(1)->widget()->metaObject()->className());
+      if (widget_type == "QDoubleSpinBox") {
+        const auto param_val =
+            static_cast<QDoubleSpinBox*>(layout->itemAt(1)->widget())->value();
+        nh_.setParam(param_name, param_val);
+      } else if (widget_type == "QSpinBox") {
+        const auto param_val =
+            static_cast<QSpinBox*>(layout->itemAt(1)->widget())->value();
+        nh_.setParam(param_name, param_val);
+      } else if (widget_type == "QComboBox") {
+        const auto idx = static_cast<QComboBox*>(layout->itemAt(1)->widget())
+                             ->currentIndex();
+        if (COMBO_BOX_BOOLEAN_LIST[idx] == "false")
+          nh_.setParam(param_name, false);
+        else
+          nh_.setParam(param_name, true);
+      }
     }
 
     ompl_2d_rviz_visualizer_msgs::Plan msg;
@@ -480,9 +536,6 @@ void OMPL_ControlPanel::load(const rviz::Config& config) {
   rviz::Panel::load(config);
 }
 
-std::string to_string(const std::variant<double, int, bool>& in) {
-  return std::visit(AnyGet{}, in);
-}
 }  // namespace ompl_2d_rviz_visualizer_ros
 
 #include <pluginlib/class_list_macros.h>

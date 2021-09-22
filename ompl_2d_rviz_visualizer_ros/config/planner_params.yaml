@@ -14,9 +14,32 @@ ompl_planner_parameters:
     ordering_batch_size: 1
     prune_threshold: 0.05
     pruned_measure: false
-    range: 0
+    range: 0.0
     rewire_factor: 1.1
     sample_rejection: false
     tree_pruning: false
     use_admissible_heuristic: true
     use_k_nearest: true
+
+ompl_planner_parameters_range:
+  rrt_connect:
+    intermediate_states: "0,1"
+    range: "0.:1.:10000."
+
+  rrt_star:
+    delay_collision_checking: "0,1"
+    focus_search: "0,1"
+    goal_bias: "0.:.05:1."
+    informed_sampling: "0,1"
+    new_state_rejection: "0,1"
+    number_sampling_attempts: "10:10:100000"
+    ordered_sampling: "0,1"
+    ordering_batch_size: "1:100:1000000"
+    prune_threshold: "0.:.01:1."
+    pruned_measure: "0,1"
+    range: "0.:1.:10000."
+    rewire_factor: "1.0:0.01:2.0"
+    sample_rejection: "0,1"
+    tree_pruning: "0,1"
+    use_admissible_heuristic: "0,1"
+    use_k_nearest: "0,1"
