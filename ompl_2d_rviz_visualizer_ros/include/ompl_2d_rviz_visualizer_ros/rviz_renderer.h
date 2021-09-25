@@ -89,6 +89,8 @@ class RvizRenderer {
 
   geometry_msgs::Point stateToPointMsg(const ob::State* state);
 
+  bool loadMapFromYaml(std::string path_to_yaml);
+
   std::string base_frame_;
   rvt::RvizVisualToolsPtr visual_tools_;
 };

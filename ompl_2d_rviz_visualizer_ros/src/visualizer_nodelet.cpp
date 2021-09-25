@@ -13,6 +13,7 @@
 #include <ros/ros.h>
 #include <rviz_visual_tools/rviz_visual_tools.h>
 #include <std_msgs/UInt8.h>
+#include <ompl_2d_rviz_visualizer_ros/map_loader.h>
 
 #include <atomic>
 #include <memory>
@@ -51,6 +52,17 @@ class VisualizerNodelet : public nodelet::Nodelet {
     // map. Based on the map, set the bounds for ompl accordingly. Min and max
     // Bounds must be set for each dimension
     // e.g., bounds.setLow(unsigned int index, double value)
+    ogm_map_ = std::make_shared<nav_msgs::OccupancyGrid>();
+    map_loader_ = std::make_shared<MapLoader>(mt_nh_);
+    std::string path = "/home/sai/motion_planning_ws/src/ompl_2d_rviz_visualizer/ompl_2d_rviz_visualizer_ros/map/map.yaml";
+
+    map_loader_->loadMapFromYaml(path, *ogm_map_);
+    // for(auto a: ogm_map_->data )
+    // {
+    //   std::cout<<a<<std::endl;
+    // }
+    std::cout<<ogm_map_->data.size()<<std::endl;
+    
 
     ob::RealVectorBounds bounds(2);
     bounds.setLow(-5);
@@ -224,6 +236,10 @@ class VisualizerNodelet : public nodelet::Nodelet {
   og::SimpleSetupPtr ss_;
   ob::SpaceInformationPtr si_;
   std::shared_ptr<ob::PathLengthOptimizationObjective> path_length_objective_;
+
+  std::shared_ptr<nav_msgs::OccupancyGrid> ogm_map_;
+  std::shared_ptr<MapLoader> map_loader_;
+
 
   ob::ScopedStatePtr start_state_;
   ob::ScopedStatePtr goal_state_;

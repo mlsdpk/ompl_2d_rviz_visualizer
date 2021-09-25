@@ -12,10 +12,34 @@ set(${PROJECT_NAME}_CATKIN_DEPS
   rviz_visual_tools
   rviz
   ompl_2d_rviz_visualizer_msgs
+  nav_msgs
+
 )
 
 find_package(ompl REQUIRED)
 find_package(catkin REQUIRED COMPONENTS ${${PROJECT_NAME}_CATKIN_DEPS})
+
+find_package(Bullet REQUIRED)
+find_package(SDL REQUIRED)
+find_package(SDL_image REQUIRED)
+find_package(Boost REQUIRED COMPONENTS filesystem)
+#find_package(yaml-cpp 0.6 REQUIRED)
+
+find_package(PkgConfig REQUIRED)
+
+pkg_check_modules(YAMLCPP yaml-cpp QUIET)
+if(NOT YAMLCPP_FOUND)
+  find_package(yaml-cpp 0.6 REQUIRED)
+  set(YAMLCPP_INCLUDE_DIRS ${YAML_CPP_INCLUDE_DIR})
+  set(YAMLCPP_LIBRARIES ${YAML_CPP_LIBRARIES})
+  add_definitions(-DHAVE_YAMLCPP_GT_0_5_0)
+else()
+  if(YAMLCPP_VERSION VERSION_GREATER "0.5.0")
+    add_definitions(-DHAVE_YAMLCPP_GT_0_5_0)
+  endif()
+  link_directories(${YAMLCPP_LIBRARY_DIRS})
+endif()
+
 
 # Qt Stuff
 if(rviz_QT_VERSION VERSION_LESS "5")
@@ -52,10 +76,14 @@ catkin_package(
 
 include_directories(
   include 
+  ${BULLET_INCLUDE_DIRS}
   ${OMPL_INCLUDE_DIRS}
   ${catkin_INCLUDE_DIRS}
   ${Boost_INCLUDE_DIRS}
   ${Eigen_INCLUDE_DIRS}
+  ${YAML_CPP_INCLUDE_DIRS}
+  ${SDL_INCLUDE_DIR}
+  ${SDL_IMAGE_INCLUDE_DIRS}
 )
 
 ## specify which header files need to be run through "moc",
@@ -68,10 +96,14 @@ qt_wrap_cpp(MOC_FILES
 add_library(${PROJECT_NAME}_nodelet
   src/visualizer_nodelet.cpp
   src/rviz_renderer.cpp
+  src/map_loader.cpp
 )
 target_link_libraries(${PROJECT_NAME}_nodelet
+  ${BULLET_LIBRARIES}
   ${catkin_LIBRARIES}
   ${OMPL_LIBRARIES}
+  ${SDL_LIBRARY}
+  ${SDL_IMAGE_LIBRARIES}
 )
 
 # control panel
