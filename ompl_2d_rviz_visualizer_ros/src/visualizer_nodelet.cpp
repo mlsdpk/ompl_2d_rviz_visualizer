@@ -1,5 +1,6 @@
 #include <nodelet/nodelet.h>
 #include <ompl/base/SpaceInformation.h>
+#include <ompl/base/objectives/MaximizeMinClearanceObjective.h>
 #include <ompl/base/objectives/PathLengthOptimizationObjective.h>
 #include <ompl/base/spaces/SE3StateSpace.h>
 #include <ompl/config.h>
@@ -7,6 +8,8 @@
 #include <ompl/geometric/planners/rrt/InformedRRTstar.h>
 #include <ompl/geometric/planners/rrt/RRTConnect.h>
 #include <ompl/geometric/planners/rrt/RRTstar.h>
+#include <ompl_2d_rviz_visualizer_msgs/Plan.h>
+#include <ompl_2d_rviz_visualizer_msgs/Reset.h>
 #include <ompl_2d_rviz_visualizer_msgs/State.h>
 #include <ompl_2d_rviz_visualizer_ros/rviz_renderer.h>
 #include <pluginlib/class_list_macros.h>
@@ -24,6 +27,14 @@ namespace ob = ompl::base;
 namespace og = ompl::geometric;
 
 namespace ompl_2d_rviz_visualizer_ros {
+
+enum PLANNERS_IDS { INVALID, RRT_CONNECT, RRT_STAR };
+
+enum PLANNING_OBJS_IDS { PATH_LENGTH, MAXMIN_CLEARANCE };
+
+const std::vector<std::string> PLANNER_NAMES{"invalid", "rrt_connect",
+                                             "rrt_star"};
+
 class VisualizerNodelet : public nodelet::Nodelet {
  public:
   VisualizerNodelet() {}
@@ -91,26 +102,29 @@ class VisualizerNodelet : public nodelet::Nodelet {
 
     ///////////////////////////////////////////////////////////////////////////
 
-    ss_->setPlanner(ob::PlannerPtr(std::make_shared<og::RRTstar>(si_)));
-
-    path_length_objective_ =
-        std::make_shared<ob::PathLengthOptimizationObjective>(si_);
-
     enable_planning_ = false;
     solution_found_ = false;
     rendering_finished_ = false;
+    planner_id_ = PLANNERS_IDS::INVALID;
+    planning_obj_id_ = PLANNING_OBJS_IDS::PATH_LENGTH;
+    planning_duration_ = 0.0;
 
-    // subscriber for rviz panel
-    rviz_panel_sub_ = nh_.subscribe("/rviz/ompl_controlpanel/plan_request", 1,
-                                    &VisualizerNodelet::rvizPanelCB, this);
+    // service servers
+    start_state_setter_srv_ = mt_nh_.advertiseService(
+        "/ompl_2d_rviz_visualizer_nodelet/set_start_state",
+        &VisualizerNodelet::setStartStateService, this);
 
-    rviz_panel_start_state_sub_ =
-        nh_.subscribe("/rviz/ompl_controlpanel/start_state", 1,
-                      &VisualizerNodelet::rvizPanelStartStateCB, this);
+    goal_state_setter_srv_ = mt_nh_.advertiseService(
+        "/ompl_2d_rviz_visualizer_nodelet/set_goal_state",
+        &VisualizerNodelet::setGoalStateService, this);
 
-    rviz_panel_goal_state_sub_ =
-        nh_.subscribe("/rviz/ompl_controlpanel/goal_state", 1,
-                      &VisualizerNodelet::rvizPanelGoalStateCB, this);
+    plan_request_srv_ =
+        mt_nh_.advertiseService("/ompl_2d_rviz_visualizer_nodelet/plan_request",
+                                &VisualizerNodelet::planRequestService, this);
+
+    reset_request_srv_ = mt_nh_.advertiseService(
+        "/ompl_2d_rviz_visualizer_nodelet/reset_request",
+        &VisualizerNodelet::resetRequestService, this);
 
     // timers
     planning_timer_ = mt_nh_.createWallTimer(
@@ -120,52 +134,128 @@ class VisualizerNodelet : public nodelet::Nodelet {
         ros::WallDuration(0.001), &VisualizerNodelet::renderingTimerCB, this);
   }
 
-  void rvizPanelCB(const std_msgs::UInt8& msg) {
-    ROS_INFO("Panel msg received: %d", msg.data);
-
-    if (msg.data == 1) {
-      rviz_renderer_->deleteAllMarkers();
-    } else if (msg.data == 2) {
-      solution_found_ = false;
-      rendering_finished_ = false;
-      enable_planning_ = true;
-    }
-  }
-
-  void rvizPanelStartStateCB(const ompl_2d_rviz_visualizer_msgs::State& msg) {
-    ob::ScopedState<> start(space_);
-    // Convert to RealVectorStateSpace
-    const ob::RealVectorStateSpace::StateType* real_state =
-        static_cast<const ob::RealVectorStateSpace::StateType*>(start.get());
-    real_state->values[0] = msg.x;
-    real_state->values[1] = msg.y;
-    rviz_renderer_->renderState(start.get(), rviz_visual_tools::GREEN,
+  bool setStartStateService(ompl_2d_rviz_visualizer_msgs::StateRequest& req,
+                            ompl_2d_rviz_visualizer_msgs::StateResponse& res) {
+    (*start_state_)[0] = req.x;
+    (*start_state_)[1] = req.y;
+    rviz_renderer_->renderState((*start_state_).get(), rviz_visual_tools::GREEN,
                                 rviz_visual_tools::XXXLARGE,
                                 "start_goal_states", 1);
-    (*start_state_)[0] = msg.x;
-    (*start_state_)[1] = msg.y;
+    res.success = true;
+    return true;
   }
 
-  void rvizPanelGoalStateCB(const ompl_2d_rviz_visualizer_msgs::State& msg) {
-    ob::ScopedState<> goal(space_);
-    // Convert to RealVectorStateSpace
-    const ob::RealVectorStateSpace::StateType* real_state =
-        static_cast<const ob::RealVectorStateSpace::StateType*>(goal.get());
-    real_state->values[0] = msg.x;
-    real_state->values[1] = msg.y;
-    rviz_renderer_->renderState(goal.get(), rviz_visual_tools::RED,
+  bool setGoalStateService(ompl_2d_rviz_visualizer_msgs::StateRequest& req,
+                           ompl_2d_rviz_visualizer_msgs::StateResponse& res) {
+    (*goal_state_)[0] = req.x;
+    (*goal_state_)[1] = req.y;
+    rviz_renderer_->renderState((*goal_state_).get(), rviz_visual_tools::RED,
                                 rviz_visual_tools::XXXLARGE,
                                 "start_goal_states", 2);
-    (*goal_state_)[0] = msg.x;
-    (*goal_state_)[1] = msg.y;
+    res.success = true;
+    return true;
+  }
+
+  bool planRequestService(ompl_2d_rviz_visualizer_msgs::PlanRequest& req,
+                          ompl_2d_rviz_visualizer_msgs::PlanResponse& res) {
+    ROS_INFO("Planning request received.");
+    ROS_INFO("Planner ID: %s", PLANNER_NAMES[req.planner_id].c_str());
+
+    planner_id_ = req.planner_id;
+    planning_obj_id_ = req.objective_id;
+    planning_duration_ = req.duration;
+
+    solution_found_ = false;
+    rendering_finished_ = false;
+    enable_planning_ = true;
+
+    res.success = true;
+    return true;
+  }
+
+  bool resetRequestService(ompl_2d_rviz_visualizer_msgs::ResetRequest& req,
+                           ompl_2d_rviz_visualizer_msgs::ResetResponse& res) {
+    ROS_INFO("Resetting the planner and clearing the graph markers.");
+
+    if (req.clear_graph) {
+      // first clear all the markers
+      rviz_renderer_->deleteAllMarkers();
+      // then redraw the start and goal states
+      rviz_renderer_->renderState(
+          (*start_state_).get(), rviz_visual_tools::GREEN,
+          rviz_visual_tools::XXXLARGE, "start_goal_states", 1);
+      rviz_renderer_->renderState((*goal_state_).get(), rviz_visual_tools::RED,
+                                  rviz_visual_tools::XXXLARGE,
+                                  "start_goal_states", 2);
+    }
+    res.success = true;
+    return true;
   }
 
   void planningTimerCB(const ros::WallTimerEvent& event) {
     if (enable_planning_) {
+      // choose the optimization objective
+      switch (planning_obj_id_) {
+        case PATH_LENGTH:
+          optimization_objective_ =
+              std::make_shared<ob::PathLengthOptimizationObjective>(si_);
+          break;
+
+        case MAXMIN_CLEARANCE:
+          optimization_objective_ =
+              std::make_shared<ob::MaximizeMinClearanceObjective>(si_);
+          break;
+
+        default:
+          ROS_ERROR("Error setting OMPL optimization objective.");
+          exit(-1);
+          break;
+      }
+      ss_->setOptimizationObjective(optimization_objective_);
+
+      // choose the planner
+      switch (planner_id_) {
+        case RRT_CONNECT:
+          ss_->setPlanner(
+              ob::PlannerPtr(std::make_shared<og::RRTConnect>(si_)));
+          break;
+        case RRT_STAR:
+          ss_->setPlanner(ob::PlannerPtr(std::make_shared<og::RRTstar>(si_)));
+          break;
+        default:
+          break;
+      }
+
+      // get latest planner params from the parameter server
+      std::vector<std::string> param_names;
+      ss_->getPlanner()->params().getParamNames(param_names);
+      std::map<std::string, std::string> updated_param_names_values;
+      for (const auto& n : param_names) {
+        std::string param_name =
+            "ompl_planner_parameters/" + PLANNER_NAMES[planner_id_] + "/" + n;
+        XmlRpc::XmlRpcValue param;
+        if (private_nh_.hasParam(param_name)) {
+          private_nh_.getParam(param_name, param);
+
+          if (param.getType() == XmlRpc::XmlRpcValue::TypeDouble) {
+            updated_param_names_values[n] =
+                std::to_string(static_cast<double>(param));
+          } else if (param.getType() == XmlRpc::XmlRpcValue::TypeInt) {
+            updated_param_names_values[n] =
+                std::to_string(static_cast<int>(param));
+          } else if (param.getType() == XmlRpc::XmlRpcValue::TypeBoolean) {
+            updated_param_names_values[n] =
+                std::to_string(static_cast<bool>(param));
+          }
+        }
+      }
+      ss_->getPlanner()->params().setParams(updated_param_names_values);
+
+      ROS_INFO("Planner parameters updated.");
+
       // Create the termination condition
-      double seconds = 0.01;
       ob::PlannerTerminationCondition ptc =
-          ob::timedPlannerTerminationCondition(seconds, 0.005);
+          ob::timedPlannerTerminationCondition(planning_duration_, 0.01);
 
       ss_->clear();
       ss_->clearStartStates();
@@ -218,11 +308,13 @@ class VisualizerNodelet : public nodelet::Nodelet {
   ros::NodeHandle private_nh_;
 
   // subscribers
-  ros::Subscriber rviz_panel_sub_;
-  ros::Subscriber rviz_panel_start_state_sub_;
-  ros::Subscriber rviz_panel_goal_state_sub_;
-
   // publishers
+
+  // service servers
+  ros::ServiceServer plan_request_srv_;
+  ros::ServiceServer reset_request_srv_;
+  ros::ServiceServer start_state_setter_srv_;
+  ros::ServiceServer goal_state_setter_srv_;
 
   // timers
   ros::WallTimer planning_timer_;
@@ -235,7 +327,7 @@ class VisualizerNodelet : public nodelet::Nodelet {
   ob::StateSpacePtr space_;
   og::SimpleSetupPtr ss_;
   ob::SpaceInformationPtr si_;
-  std::shared_ptr<ob::PathLengthOptimizationObjective> path_length_objective_;
+  std::shared_ptr<ob::OptimizationObjective> optimization_objective_;
 
   std::shared_ptr<nav_msgs::OccupancyGrid> ogm_map_;
   std::shared_ptr<MapLoader> map_loader_;
@@ -243,6 +335,10 @@ class VisualizerNodelet : public nodelet::Nodelet {
 
   ob::ScopedStatePtr start_state_;
   ob::ScopedStatePtr goal_state_;
+
+  int planner_id_;
+  int planning_obj_id_;
+  double planning_duration_;
 
   // flags
   std::atomic_bool enable_planning_;

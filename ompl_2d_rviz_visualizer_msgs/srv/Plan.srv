@@ -1,0 +1,10 @@
+# planner id
+uint8 planner_id
+
+# timed termination condition
+float64 duration
+
+# optimization objective
+uint8 objective_id
+---
+bool success

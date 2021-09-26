@@ -1,13 +1,16 @@
 #include "rviz_control_panel.h"
 
-#include <std_msgs/UInt8.h>
+#include <ompl_2d_rviz_visualizer_msgs/Plan.h>
+#include <ompl_2d_rviz_visualizer_msgs/Reset.h>
+#include <ompl_2d_rviz_visualizer_msgs/State.h>
 
 namespace ompl_2d_rviz_visualizer_ros {
 OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent)
     : rviz::Panel(parent),
-      nh_{"ompl_2d_rviz_visualizer_nodelet/ompl_planner_parameters"},
+      nh_{"ompl_2d_rviz_visualizer_nodelet"},
       prv_nh_{"~ompl_controlpanel"},
-      planner_id_{0} {
+      planner_id_{PLANNERS_IDS::INVALID},
+      planning_obj_id_{PLANNING_OBJS_IDS::PATH_LENGTH} {
   ////////////////////
   // Start layout
   ////////////////////
@@ -42,6 +45,7 @@ OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent)
   start_hlayout->addLayout(start_y_hlayout);
   start_hlayout->addWidget(btn_start_);
 
+  start_check_box_->setChecked(true);
   start_combo_box_->setEnabled(false);
   start_x_spin_box_->setEnabled(false);
   start_y_spin_box_->setEnabled(false);
@@ -106,17 +110,42 @@ OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent)
   connect(planner_combo_box_, SIGNAL(activated(int)), this,
           SLOT(plannerComboBoxActivated(int)));
 
-  QGroupBox* planner_params_gp_box = new QGroupBox(QString("Parameters"));
+  QScrollArea* scroll_area = new QScrollArea;
+  scroll_area->setWidgetResizable(true);
+  QWidget* temp = new QWidget;
+  scroll_area->setWidget(temp);
   planner_params_v_layout_ = new QVBoxLayout;
-  planner_params_gp_box->setLayout(planner_params_v_layout_);
+  temp->setLayout(planner_params_v_layout_);
 
   QVBoxLayout* planner_vlayout = new QVBoxLayout;
   planner_vlayout->addWidget(planner_combo_box_);
-  planner_vlayout->addWidget(planner_params_gp_box);
+  planner_vlayout->addWidget(new QLabel(QString("Parameters")));
+  planner_vlayout->addWidget(scroll_area);
 
   QGroupBox* planner_gp_box = new QGroupBox(QString("Planner"));
   planner_gp_box->setLayout(planner_vlayout);
+
   ////////////////////////////////////////
+
+  /////////////////////////////////////////
+  // Planning objective and duration
+  /////////////////////////////////////////
+  planning_objective_combo_box_ = new QComboBox;
+  planning_objective_combo_box_->addItems(PLANNING_OBJS);
+  connect(planning_objective_combo_box_, SIGNAL(activated(int)), this,
+          SLOT(planningObjectiveComboBoxActivated(int)));
+
+  planning_duration_spin_box_ = new QDoubleSpinBox;
+  planning_duration_spin_box_->setMinimum(0.0);
+  planning_duration_spin_box_->setSingleStep(0.1);
+  planning_duration_spin_box_->setFixedWidth(150);
+
+  QHBoxLayout* planning_hlayout = new QHBoxLayout;
+  planning_hlayout->addWidget(new QLabel(QString("Planning objective:")));
+  planning_hlayout->addWidget(planning_objective_combo_box_);
+  planning_hlayout->addWidget(new QLabel(QString("Planning duration:")));
+  planning_hlayout->addWidget(planning_duration_spin_box_);
+  /////////////////////////////////////////
 
   /////////////////////////////////////////
   // Horizontal Layout for reset and plan
@@ -138,9 +167,11 @@ OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent)
   QVBoxLayout* layout = new QVBoxLayout;
   layout->addWidget(query_gp_box);
   layout->addWidget(planner_gp_box);
+  layout->addLayout(planning_hlayout);
   layout->addLayout(hlayout);
 
   setLayout(layout);
+  startCheckBoxStateChanged(true);
   //////////////////////////////////////////////
 
   start_state_exists_ = false;
@@ -157,32 +188,84 @@ OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent)
   goal_x_spin_box_->setRange(min_bound_x_, max_bound_x_);
   goal_y_spin_box_->setRange(min_bound_y_, max_bound_y_);
 
-  // hardcoded planner related parameters
-  // TODO: Read from the config yaml file or parameter server and
-  // store in the vector
-  std::map<QString, std::variant<double, int, bool>> rrt_connect_params;
-  rrt_connect_params["maxDistance"] = 0.0;
-  rrt_connect_params["addIntermediateStates"] = false;
-
-  std::map<QString, std::variant<double, int, bool>> rrt_star_params;
-  rrt_star_params["maxDistance"] = 0.0;
-  rrt_star_params["rewireFactor"] = 0.0;
-  rrt_star_params["goalBias"] = 0.0;
-
-  planner_params_.push_back(rrt_connect_params);
-  planner_params_.push_back(rrt_star_params);
-  ////////////////////////////////////////////////////////
-
-  data_publisher_ = prv_nh_.advertise<std_msgs::UInt8>("plan_request", 1);
-
-  start_state_publisher_ =
-      prv_nh_.advertise<ompl_2d_rviz_visualizer_msgs::State>("start_state", 1);
-
-  goal_state_publisher_ =
-      prv_nh_.advertise<ompl_2d_rviz_visualizer_msgs::State>("goal_state", 1);
+  loadPlannerParameters();
 
   btn_reset_->setEnabled(false);
   btn_plan_->setEnabled(true);
+  ///////////////////////////////////////////////////////////////
+
+  // ROS related
+  plan_request_client_ =
+      nh_.serviceClient<ompl_2d_rviz_visualizer_msgs::Plan>("plan_request");
+
+  reset_request_client_ =
+      nh_.serviceClient<ompl_2d_rviz_visualizer_msgs::Reset>("reset_request");
+
+  start_state_setter_client_ =
+      nh_.serviceClient<ompl_2d_rviz_visualizer_msgs::State>("set_start_state");
+
+  goal_state_setter_client_ =
+      nh_.serviceClient<ompl_2d_rviz_visualizer_msgs::State>("set_goal_state");
+
+  ROS_INFO_STREAM_NAMED("Control Panel",
+                        "Waiting for service servers to be connected...");
+  plan_request_client_.waitForExistence();
+  reset_request_client_.waitForExistence();
+  start_state_setter_client_.waitForExistence();
+  goal_state_setter_client_.waitForExistence();
+  ROS_INFO_STREAM_NAMED("Control Panel", "Service servers found.");
+}
+
+void OMPL_ControlPanel::loadPlannerParameters() {
+  std::vector<std::string> ros_param_names;
+  nh_.getParamNames(ros_param_names);
+  for (auto i = 1; i < PLANNERS.length(); ++i) {
+    PlannerParameterList planner_param_list;
+    for (const auto& n : ros_param_names) {
+      std::size_t found;
+      if ((found = n.find(PARAMETERS_NS)) != std::string::npos) {
+        if (n.find(PLANNERS[i].toStdString()) == std::string::npos) continue;
+
+        std::string ompl_param_name;
+        ompl_param_name = n.substr(found + PARAMETERS_NS.length() +
+                                   PLANNERS[i].toStdString().length() + 1);
+
+        // get the planner parameter
+        XmlRpc::XmlRpcValue xml_param;
+        nh_.getParam(n, xml_param);
+
+        // get the planner parameter range
+        std::string parameter_range_ros_param = PARAMETERS_RANGE_NS +
+                                                PLANNERS[i].toStdString() +
+                                                "/" + ompl_param_name;
+        std::string planner_param_range;
+        nh_.getParam(parameter_range_ros_param, planner_param_range);
+
+        // set planner parameter
+        PlannerParameter planner_param;
+        setPlannerParameter(planner_param, ompl_param_name, xml_param,
+                            planner_param_range);
+
+        planner_param_list.push_back(planner_param);
+      }
+    }
+    planners_param_list_.push_back(planner_param_list);
+  }
+}
+
+void OMPL_ControlPanel::setPlannerParameter(PlannerParameter& param,
+                                            const std::string& name,
+                                            const XmlRpc::XmlRpcValue& value,
+                                            const std::string& range) {
+  param.name = name;
+  if (value.getType() == XmlRpc::XmlRpcValue::TypeDouble) {
+    param.value = static_cast<double>(value);
+  } else if (value.getType() == XmlRpc::XmlRpcValue::TypeInt) {
+    param.value = static_cast<int>(value);
+  } else if (value.getType() == XmlRpc::XmlRpcValue::TypeBoolean) {
+    param.value = static_cast<bool>(value);
+  }
+  param.range = range;
 }
 
 void OMPL_ControlPanel::startCheckBoxStateChanged(bool checked) {
@@ -263,22 +346,50 @@ void OMPL_ControlPanel::plannerComboBoxActivated(int index) {
   updatePlannerParamsLayoutList(static_cast<unsigned>(index));
 }
 
+void OMPL_ControlPanel::planningObjectiveComboBoxActivated(int index) {
+  planning_obj_id_ = index;
+}
+
 bool OMPL_ControlPanel::updatePlannerParamsLayoutList(unsigned int id) {
   if (id == PLANNERS_IDS::INVALID) return false;
 
-  for (auto it = planner_params_[id - 1].begin();
-       it != planner_params_[id - 1].end(); it++) {
-    QLabel* label = new QLabel(it->first);
-    // TODO: Custom validators need to be implemented for line edits
-    QLineEdit* line_edit = new QLineEdit;
-    line_edit->setFixedWidth(150);
-    line_edit->setText(
-        QString::fromStdString(std::visit(AnyGet{}, it->second)));
+  for (const auto& param : planners_param_list_[id - 1]) {
     QHBoxLayout* params_hlayout = new QHBoxLayout;
+    QLabel* label = new QLabel(QString::fromStdString(param.name));
     params_hlayout->addWidget(label);
-    params_hlayout->addWidget(line_edit);
+
+    // double spin box for doubles
+    if (const double* pval = std::get_if<double>(&param.value)) {
+      QDoubleSpinBox* param_widget = new QDoubleSpinBox;
+      double min, step, max;
+      get_range<double>(min, step, max, param.range);
+      param_widget->setRange(min, max);
+      param_widget->setValue(*pval);
+      param_widget->setSingleStep(step);
+      params_hlayout->addWidget(param_widget);
+    }
+    // spin box for ints
+    else if (const int* pval = std::get_if<int>(&param.value)) {
+      QSpinBox* param_widget = new QSpinBox;
+      int min, step, max;
+      get_range<int>(min, step, max, param.range);
+      param_widget->setRange(min, max);
+      param_widget->setStepType(QAbstractSpinBox::DefaultStepType);
+      param_widget->setValue(*pval);
+      param_widget->setSingleStep(step);
+      params_hlayout->addWidget(param_widget);
+    }
+    // combo box for booleans
+    else if (const bool* pval = std::get_if<bool>(&param.value)) {
+      QComboBox* param_widget = new QComboBox;
+      param_widget->addItems(COMBO_BOX_BOOLEAN_LIST);
+      param_widget->setCurrentIndex(*pval ? 1 : 0);
+      params_hlayout->addWidget(param_widget);
+    }
+
     planner_params_layout_list_.append(params_hlayout);
   }
+
   for (const auto layout : planner_params_layout_list_) {
     planner_params_v_layout_->addLayout(layout);
   }
@@ -298,72 +409,109 @@ void OMPL_ControlPanel::btn_start_clicked() {
   // the point needs to be collision-free
   ompl_2d_rviz_visualizer_msgs::State msg;
   if (start_combo_box_->currentIndex() == Random) {
-    generateRandomPoint(msg.x, msg.y);
+    generateRandomPoint(msg.request.x, msg.request.y);
   } else if (start_combo_box_->currentIndex() == Manual) {
     //
   } else if (start_combo_box_->currentIndex() == Clicked) {
     //
   }
-  start_x_spin_box_->setValue(msg.x);
-  start_y_spin_box_->setValue(msg.y);
-  start_state_publisher_.publish(msg);
+  start_x_spin_box_->setValue(msg.request.x);
+  start_y_spin_box_->setValue(msg.request.y);
+  if (start_state_setter_client_.call(msg)) {
+    if (msg.response.success)
+      ROS_DEBUG("set_start_state service calling succeeded.");
+  } else {
+    ROS_ERROR("Failed to call set_start_state service.");
+    exit(-1);
+  }
   start_state_exists_ = true;
 }
 
 void OMPL_ControlPanel::btn_goal_clicked() {
   ompl_2d_rviz_visualizer_msgs::State msg;
   if (goal_combo_box_->currentIndex() == Random) {
-    generateRandomPoint(msg.x, msg.y);
+    generateRandomPoint(msg.request.x, msg.request.y);
   } else if (goal_combo_box_->currentIndex() == Manual) {
     //
   } else if (goal_combo_box_->currentIndex() == Clicked) {
     //
   }
-  goal_x_spin_box_->setValue(msg.x);
-  goal_y_spin_box_->setValue(msg.y);
-  goal_state_publisher_.publish(msg);
+  goal_x_spin_box_->setValue(msg.request.x);
+  goal_y_spin_box_->setValue(msg.request.y);
+  if (goal_state_setter_client_.call(msg)) {
+    if (msg.response.success)
+      ROS_DEBUG("set_goal_state service calling succeeded.");
+  } else {
+    ROS_ERROR("Failed to call set_goal_state service.");
+    exit(-1);
+  }
   goal_state_exists_ = true;
 }
 
 void OMPL_ControlPanel::reset() {
   ROS_INFO_STREAM_NAMED("ompl_control_panel", "RESET button pressed.");
 
-  std_msgs::UInt8 msg;
-  msg.data = 1;
-  data_publisher_.publish(msg);
+  ompl_2d_rviz_visualizer_msgs::Reset msg;
+  msg.request.clear_graph = true;
+  if (reset_request_client_.call(msg)) {
+    if (msg.response.success) ROS_DEBUG("Reset Service calling succeeded.");
+  } else {
+    ROS_ERROR("Failed to call reset_request service.");
+    exit(-1);
+  }
   btn_reset_->setEnabled(false);
   btn_plan_->setEnabled(true);
 
   start_check_box_->setEnabled(true);
   goal_check_box_->setEnabled(true);
-  start_state_exists_ = false;
-  goal_state_exists_ = false;
+  start_check_box_->setChecked(true);
+  startCheckBoxStateChanged(true);
 }
 
 void OMPL_ControlPanel::plan() {
   ROS_INFO_STREAM_NAMED("ompl_control_panel", "PLAN button pressed.");
 
-  if (start_state_exists_ && goal_state_exists_) {
+  if (start_state_exists_ && goal_state_exists_ &&
+      planner_id_ != PLANNERS_IDS::INVALID) {
     // read the parameters and update the parameter server
     for (const auto layout : planner_params_layout_list_) {
       auto param_name = static_cast<QLabel*>(layout->itemAt(0)->widget())
                             ->text()
                             .toStdString();
-      const auto param_val =
-          static_cast<QLineEdit*>(layout->itemAt(1)->widget())->text();
-      param_name = PLANNERS[planner_id_].toStdString() + "/" + param_name;
-
-      if (param_val == "true")
-        nh_.setParam(param_name, true);
-      else if (param_val == "false")
-        nh_.setParam(param_name, false);
-      else
-        nh_.setParam(param_name, std::stod(param_val.toStdString()));
+      param_name = "ompl_planner_parameters/" +
+                   PLANNERS[planner_id_].toStdString() + "/" + param_name;
+      // get the widget type
+      std::string widget_type(
+          layout->itemAt(1)->widget()->metaObject()->className());
+      if (widget_type == "QDoubleSpinBox") {
+        const auto param_val =
+            static_cast<QDoubleSpinBox*>(layout->itemAt(1)->widget())->value();
+        nh_.setParam(param_name, param_val);
+      } else if (widget_type == "QSpinBox") {
+        const auto param_val =
+            static_cast<QSpinBox*>(layout->itemAt(1)->widget())->value();
+        nh_.setParam(param_name, param_val);
+      } else if (widget_type == "QComboBox") {
+        const auto idx = static_cast<QComboBox*>(layout->itemAt(1)->widget())
+                             ->currentIndex();
+        if (COMBO_BOX_BOOLEAN_LIST[idx] == "false")
+          nh_.setParam(param_name, false);
+        else
+          nh_.setParam(param_name, true);
+      }
     }
 
-    std_msgs::UInt8 msg;
-    msg.data = 2;
-    data_publisher_.publish(msg);
+    ompl_2d_rviz_visualizer_msgs::Plan msg;
+    msg.request.planner_id = planner_id_;
+    msg.request.objective_id = planning_obj_id_;
+    msg.request.duration = planning_duration_spin_box_->value();
+    if (plan_request_client_.call(msg)) {
+      if (msg.response.success) ROS_DEBUG("Plan Service calling succeeded.");
+    } else {
+      ROS_ERROR("Failed to call plan_request service.");
+      exit(-1);
+    }
+
     btn_reset_->setEnabled(true);
     btn_plan_->setEnabled(false);
 
@@ -377,8 +525,6 @@ void OMPL_ControlPanel::plan() {
     goal_x_spin_box_->setEnabled(false);
     goal_y_spin_box_->setEnabled(false);
     btn_goal_->setEnabled(false);
-    start_check_box_->setChecked(false);
-    goal_check_box_->setChecked(false);
   }
 }
 
@@ -390,9 +536,6 @@ void OMPL_ControlPanel::load(const rviz::Config& config) {
   rviz::Panel::load(config);
 }
 
-std::string to_string(const std::variant<double, int, bool>& in) {
-  return std::visit(AnyGet{}, in);
-}
 }  // namespace ompl_2d_rviz_visualizer_ros
 
 #include <pluginlib/class_list_macros.h>
