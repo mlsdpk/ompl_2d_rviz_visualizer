@@ -11,12 +11,12 @@
 #include <ompl_2d_rviz_visualizer_msgs/Plan.h>
 #include <ompl_2d_rviz_visualizer_msgs/Reset.h>
 #include <ompl_2d_rviz_visualizer_msgs/State.h>
+#include <ompl_2d_rviz_visualizer_ros/map_loader.h>
 #include <ompl_2d_rviz_visualizer_ros/rviz_renderer.h>
 #include <pluginlib/class_list_macros.h>
 #include <ros/ros.h>
 #include <rviz_visual_tools/rviz_visual_tools.h>
 #include <std_msgs/UInt8.h>
-#include <ompl_2d_rviz_visualizer_ros/map_loader.h>
 
 #include <atomic>
 #include <memory>
@@ -49,32 +49,32 @@ class VisualizerNodelet : public nodelet::Nodelet {
     private_nh_ = getPrivateNodeHandle();
 
     // initialize rviz renderer object
-    rviz_renderer_ = std::make_shared<RvizRenderer>(
-        "base_frame", "/rviz_visual_markers", mt_nh_);
+    rviz_renderer_ =
+        std::make_shared<RvizRenderer>("map", "/rviz_visual_markers", mt_nh_);
 
     // ompl related
     space_ = std::make_shared<ob::RealVectorStateSpace>(2u);
+
+    // initialize map loader and occupancy grid map objects
+    ogm_map_ = std::make_shared<nav_msgs::OccupancyGrid>();
+    map_loader_ = std::make_shared<MapLoader>("map", "/map", mt_nh_);
+
+    if (!private_nh_.hasParam("map_file_path")) {
+      ROS_ERROR("map_file_path does not exist in parameter server. Exiting...");
+      exit(-1);
+    }
+
+    std::string map_file_path;
+    private_nh_.getParam("map_file_path", map_file_path);
+    map_loader_->loadMapFromYaml(map_file_path, *ogm_map_);
 
     ////////////////////////////////////////////////////////////////
     // set the bounds for the R^2
     // currently bounds are hardcoded
     // later we'll use occupancy grid maps to generate these bounds
-    // TODO (Sai): Read map yaml file and store the map data into occupancy grid
-    // map. Based on the map, set the bounds for ompl accordingly. Min and max
-    // Bounds must be set for each dimension
-    // e.g., bounds.setLow(unsigned int index, double value)
-    ogm_map_ = std::make_shared<nav_msgs::OccupancyGrid>();
-    map_loader_ = std::make_shared<MapLoader>(mt_nh_);
-    std::string path = "/home/sai/motion_planning_ws/src/ompl_2d_rviz_visualizer/ompl_2d_rviz_visualizer_ros/map/map.yaml";
-
-    map_loader_->loadMapFromYaml(path, *ogm_map_);
-    // for(auto a: ogm_map_->data )
-    // {
-    //   std::cout<<a<<std::endl;
-    // }
-    std::cout<<ogm_map_->data.size()<<std::endl;
-    
-
+    // TODO (Phone): Based on the map, set the bounds for ompl accordingly. Min
+    // and max Bounds must be set for each dimension e.g.,
+    // bounds.setLow(unsigned int index, double value)
     ob::RealVectorBounds bounds(2);
     bounds.setLow(-5);
     bounds.setHigh(5);
@@ -94,7 +94,7 @@ class VisualizerNodelet : public nodelet::Nodelet {
     // occupancy grid maps for collison checking
 
     ///////////////////////////////////////////////////////////////////////////
-    // TODO (Sai): Collision checker class need to be initialized here.
+    // TODO (Phone): Collision checker class need to be initialized here.
     // collison checking function must be passed into setStateValidityChecker.
     // The function accepts pointer to ompl state (const ob::State* state)
 
@@ -331,7 +331,6 @@ class VisualizerNodelet : public nodelet::Nodelet {
 
   std::shared_ptr<nav_msgs::OccupancyGrid> ogm_map_;
   std::shared_ptr<MapLoader> map_loader_;
-
 
   ob::ScopedStatePtr start_state_;
   ob::ScopedStatePtr goal_state_;

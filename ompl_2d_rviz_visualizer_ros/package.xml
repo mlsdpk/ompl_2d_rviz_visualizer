@@ -24,6 +24,7 @@
   <depend>sdl-image</depend>
   <depend>yaml-cpp</depend>
   <depend>bullet</depend>
+  <depend>tf2</depend>
 
   <export>
     <nodelet plugin="${prefix}/nodelet_plugins.xml" />
