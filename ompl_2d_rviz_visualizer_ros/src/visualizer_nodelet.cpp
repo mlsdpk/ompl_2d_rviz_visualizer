@@ -12,6 +12,7 @@
 #include <ompl_2d_rviz_visualizer_msgs/Reset.h>
 #include <ompl_2d_rviz_visualizer_msgs/State.h>
 #include <ompl_2d_rviz_visualizer_ros/map_loader.h>
+#include <ompl_2d_rviz_visualizer_ros/map_utils.h>
 #include <ompl_2d_rviz_visualizer_ros/rviz_renderer.h>
 #include <pluginlib/class_list_macros.h>
 #include <ros/ros.h>
@@ -49,15 +50,16 @@ class VisualizerNodelet : public nodelet::Nodelet {
     private_nh_ = getPrivateNodeHandle();
 
     // initialize rviz renderer object
-    rviz_renderer_ =
-        std::make_shared<RvizRenderer>("map", "/rviz_visual_markers", mt_nh_);
+    rviz_renderer_ = std::make_shared<RvizRenderer>(
+        "map", "/ompl_2d_rviz_visualizer_nodelet/rviz_visual_markers", mt_nh_);
 
     // ompl related
     space_ = std::make_shared<ob::RealVectorStateSpace>(2u);
 
     // initialize map loader and occupancy grid map objects
     ogm_map_ = std::make_shared<nav_msgs::OccupancyGrid>();
-    map_loader_ = std::make_shared<MapLoader>("map", "/map", mt_nh_);
+    map_loader_ = std::make_shared<MapLoader>(
+        "map", "/ompl_2d_rviz_visualizer_nodelet/map", mt_nh_);
 
     if (!private_nh_.hasParam("map_file_path")) {
       ROS_ERROR("map_file_path does not exist in parameter server. Exiting...");
@@ -75,9 +77,17 @@ class VisualizerNodelet : public nodelet::Nodelet {
     // TODO (Phone): Based on the map, set the bounds for ompl accordingly. Min
     // and max Bounds must be set for each dimension e.g.,
     // bounds.setLow(unsigned int index, double value)
+    double min_x, max_x, min_y, max_y;
+    if (!map_utils::getBounds(min_x, max_x, min_y, max_y, *ogm_map_)) {
+      ROS_ERROR("Fail to generate bounds in the occupancy grid map.");
+      exit(-1);
+    }
+
     ob::RealVectorBounds bounds(2);
-    bounds.setLow(-5);
-    bounds.setHigh(5);
+    bounds.setLow(0, min_x);
+    bounds.setLow(1, min_y);
+    bounds.setHigh(0, max_x);
+    bounds.setHigh(1, max_y);
 
     ////////////////////////////////////////////////////////////////
 
