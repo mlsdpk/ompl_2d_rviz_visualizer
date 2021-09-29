@@ -3,6 +3,14 @@
 #include <nav_msgs/OccupancyGrid.h>
 
 namespace ompl_2d_rviz_visualizer_ros {
+
+/**
+ * @brief OccupancyGrid data constants
+ */
+static constexpr int8_t OCC_GRID_UNKNOWN = -1;
+static constexpr int8_t OCC_GRID_FREE = 0;
+static constexpr int8_t OCC_GRID_OCCUPIED = 100;
+
 namespace map_utils {
 
 /**

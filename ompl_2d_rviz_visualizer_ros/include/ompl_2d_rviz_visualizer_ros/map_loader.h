@@ -35,6 +35,7 @@
 
 #include <SDL/SDL_image.h>
 #include <nav_msgs/OccupancyGrid.h>
+#include <ompl_2d_rviz_visualizer_ros/map_utils.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 
 #include <boost/filesystem.hpp>
@@ -43,13 +44,6 @@
 #include "yaml-cpp/yaml.h"
 
 namespace ompl_2d_rviz_visualizer_ros {
-
-/**
- * @brief OccupancyGrid data constants
- */
-static constexpr int8_t OCC_GRID_UNKNOWN = -1;
-static constexpr int8_t OCC_GRID_FREE = 0;
-static constexpr int8_t OCC_GRID_OCCUPIED = 100;
 
 enum MapMode { TRINARY, SCALE, RAW };
 

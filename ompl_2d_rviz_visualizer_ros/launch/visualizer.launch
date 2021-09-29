@@ -1,12 +1,20 @@
 <launch>
+    <!-- 
+        Map file names
+            1. empty_map
+            2. map_with_single_cube
+            3. map_with_many_homotopy_classes
+            4. map_with_single_narrow_passage_gap 
+    -->
+    <arg name="map_name" value="map_with_single_cube"/>
 
     <arg name="nodelet_manager" default="ompl_2d_rviz_visualizer_nodelet_manager"/>
 
     <!-- rviz configuration path -->
     <arg name="rvizconfig" default="$(find ompl_2d_rviz_visualizer_ros)/config/rviz/visualizer.rviz"/> 
 
-    <!-- default map file path -->
-    <arg name="map_file_path" default="$(find ompl_2d_rviz_visualizer_ros)/map/map.yaml"/>
+    <!-- map file path -->
+    <arg name="map_file_path" default="$(find ompl_2d_rviz_visualizer_ros)/map/$(arg map_name)/$(arg map_name).yaml"/>
 
     <!-- rivz -->
     <node name="rviz" pkg="rviz" type="rviz" args="-d $(arg rvizconfig)" required="true" output="screen"/>

@@ -11,6 +11,7 @@ add_service_files(
   Plan.srv
   Reset.srv
   State.srv
+  MapBounds.srv
 )
 
 generate_messages(

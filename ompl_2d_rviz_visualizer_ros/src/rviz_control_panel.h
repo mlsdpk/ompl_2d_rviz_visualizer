@@ -145,6 +145,7 @@ class OMPL_ControlPanel : public rviz::Panel {
   ros::ServiceClient reset_request_client_;
   ros::ServiceClient start_state_setter_client_;
   ros::ServiceClient goal_state_setter_client_;
-};
+  ros::ServiceClient map_bounds_client_;
+};  // namespace ompl_2d_rviz_visualizer_ros
 
 }  // namespace ompl_2d_rviz_visualizer_ros

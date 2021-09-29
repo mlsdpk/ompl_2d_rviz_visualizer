@@ -1,4 +1,5 @@
 #include <nodelet/nodelet.h>
+#include <ompl/base/DiscreteMotionValidator.h>
 #include <ompl/base/SpaceInformation.h>
 #include <ompl/base/objectives/MaximizeMinClearanceObjective.h>
 #include <ompl/base/objectives/PathLengthOptimizationObjective.h>
@@ -8,9 +9,11 @@
 #include <ompl/geometric/planners/rrt/InformedRRTstar.h>
 #include <ompl/geometric/planners/rrt/RRTConnect.h>
 #include <ompl/geometric/planners/rrt/RRTstar.h>
+#include <ompl_2d_rviz_visualizer_msgs/MapBounds.h>
 #include <ompl_2d_rviz_visualizer_msgs/Plan.h>
 #include <ompl_2d_rviz_visualizer_msgs/Reset.h>
 #include <ompl_2d_rviz_visualizer_msgs/State.h>
+#include <ompl_2d_rviz_visualizer_ros/collision_checker.h>
 #include <ompl_2d_rviz_visualizer_ros/map_loader.h>
 #include <ompl_2d_rviz_visualizer_ros/map_utils.h>
 #include <ompl_2d_rviz_visualizer_ros/rviz_renderer.h>
@@ -63,7 +66,7 @@ class VisualizerNodelet : public nodelet::Nodelet {
 
     if (!private_nh_.hasParam("map_file_path")) {
       ROS_ERROR("map_file_path does not exist in parameter server. Exiting...");
-      exit(-1);
+      exit(1);
     }
 
     std::string map_file_path;
@@ -72,26 +75,22 @@ class VisualizerNodelet : public nodelet::Nodelet {
 
     ////////////////////////////////////////////////////////////////
     // set the bounds for the R^2
-    // currently bounds are hardcoded
-    // later we'll use occupancy grid maps to generate these bounds
-    // TODO (Phone): Based on the map, set the bounds for ompl accordingly. Min
-    // and max Bounds must be set for each dimension e.g.,
-    // bounds.setLow(unsigned int index, double value)
-    double min_x, max_x, min_y, max_y;
-    if (!map_utils::getBounds(min_x, max_x, min_y, max_y, *ogm_map_)) {
+    if (!map_utils::getBounds(map_bounds_.min_x, map_bounds_.max_x,
+                              map_bounds_.min_y, map_bounds_.max_y,
+                              *ogm_map_)) {
       ROS_ERROR("Fail to generate bounds in the occupancy grid map.");
-      exit(-1);
+      exit(1);
     }
 
     ob::RealVectorBounds bounds(2);
-    bounds.setLow(0, min_x);
-    bounds.setLow(1, min_y);
-    bounds.setHigh(0, max_x);
-    bounds.setHigh(1, max_y);
-
-    ////////////////////////////////////////////////////////////////
+    bounds.setLow(0, map_bounds_.min_x);
+    bounds.setLow(1, map_bounds_.min_y);
+    bounds.setHigh(0, map_bounds_.max_x);
+    bounds.setHigh(1, map_bounds_.max_y);
 
     space_->as<ob::RealVectorStateSpace>()->setBounds(bounds);
+    ////////////////////////////////////////////////////////////////
+
     space_->setup();
 
     ss_ = std::make_shared<og::SimpleSetup>(space_);
@@ -102,15 +101,11 @@ class VisualizerNodelet : public nodelet::Nodelet {
 
     // custom State Validity Checker class need to be implemented which uses
     // occupancy grid maps for collison checking
+    collision_checker_ = std::make_shared<CollisionChecker>(ogm_map_);
 
-    ///////////////////////////////////////////////////////////////////////////
-    // TODO (Phone): Collision checker class need to be initialized here.
-    // collison checking function must be passed into setStateValidityChecker.
-    // The function accepts pointer to ompl state (const ob::State* state)
-
-    ss_->setStateValidityChecker([](const ob::State* state) { return true; });
-
-    ///////////////////////////////////////////////////////////////////////////
+    ss_->setStateValidityChecker([this](const ob::State* state) {
+      return collision_checker_->isValid(state);
+    });
 
     enable_planning_ = false;
     solution_found_ = false;
@@ -136,6 +131,10 @@ class VisualizerNodelet : public nodelet::Nodelet {
         "/ompl_2d_rviz_visualizer_nodelet/reset_request",
         &VisualizerNodelet::resetRequestService, this);
 
+    map_bounds_srv_ = mt_nh_.advertiseService(
+        "/ompl_2d_rviz_visualizer_nodelet/get_map_bounds",
+        &VisualizerNodelet::getMapBoundsService, this);
+
     // timers
     planning_timer_ = mt_nh_.createWallTimer(
         ros::WallDuration(0.001), &VisualizerNodelet::planningTimerCB, this);
@@ -146,11 +145,17 @@ class VisualizerNodelet : public nodelet::Nodelet {
 
   bool setStartStateService(ompl_2d_rviz_visualizer_msgs::StateRequest& req,
                             ompl_2d_rviz_visualizer_msgs::StateResponse& res) {
+    if (!(collision_checker_->isValid(req.x, req.y))) {
+      ROS_INFO("The start state is in collision.");
+      res.success = false;
+      return true;
+    }
+
     (*start_state_)[0] = req.x;
     (*start_state_)[1] = req.y;
     rviz_renderer_->renderState((*start_state_).get(), rviz_visual_tools::GREEN,
-                                rviz_visual_tools::XXXLARGE,
-                                "start_goal_states", 1);
+                                rviz_visual_tools::XLARGE, "start_goal_states",
+                                1);
     res.success = true;
     return true;
   }
@@ -160,8 +165,8 @@ class VisualizerNodelet : public nodelet::Nodelet {
     (*goal_state_)[0] = req.x;
     (*goal_state_)[1] = req.y;
     rviz_renderer_->renderState((*goal_state_).get(), rviz_visual_tools::RED,
-                                rviz_visual_tools::XXXLARGE,
-                                "start_goal_states", 2);
+                                rviz_visual_tools::XLARGE, "start_goal_states",
+                                2);
     res.success = true;
     return true;
   }
@@ -199,6 +204,16 @@ class VisualizerNodelet : public nodelet::Nodelet {
                                   "start_goal_states", 2);
     }
     res.success = true;
+    return true;
+  }
+
+  bool getMapBoundsService(
+      ompl_2d_rviz_visualizer_msgs::MapBoundsRequest& req,
+      ompl_2d_rviz_visualizer_msgs::MapBoundsResponse& res) {
+    res.min_x = map_bounds_.min_x;
+    res.min_y = map_bounds_.min_y;
+    res.max_x = map_bounds_.max_x;
+    res.max_y = map_bounds_.max_y;
     return true;
   }
 
@@ -297,14 +312,14 @@ class VisualizerNodelet : public nodelet::Nodelet {
       ROS_INFO("Number of vertices: %d", planner_data->numVertices());
       ROS_INFO("Number of edges: %d", planner_data->numEdges());
 
-      rviz_renderer_->renderGraph(planner_data, rviz_visual_tools::BLUE, 0.01,
+      rviz_renderer_->renderGraph(planner_data, rviz_visual_tools::BLUE, 0.005,
                                   "planner_graph");
 
       // render path
       ss_->getSolutionPath().interpolate();
 
       rviz_renderer_->renderPath(ss_->getSolutionPath(),
-                                 rviz_visual_tools::PURPLE, 0.05,
+                                 rviz_visual_tools::PURPLE, 0.02,
                                  "final_solution");
       rendering_finished_ = true;
     }
@@ -325,6 +340,7 @@ class VisualizerNodelet : public nodelet::Nodelet {
   ros::ServiceServer reset_request_srv_;
   ros::ServiceServer start_state_setter_srv_;
   ros::ServiceServer goal_state_setter_srv_;
+  ros::ServiceServer map_bounds_srv_;
 
   // timers
   ros::WallTimer planning_timer_;
@@ -332,6 +348,16 @@ class VisualizerNodelet : public nodelet::Nodelet {
 
   // rendering stuffs
   RvizRendererPtr rviz_renderer_;
+
+  // ogm related
+  struct MapBounds {
+    double min_x;
+    double min_y;
+    double max_x;
+    double max_y;
+  };
+
+  MapBounds map_bounds_;
 
   // ompl related
   ob::StateSpacePtr space_;
@@ -341,6 +367,7 @@ class VisualizerNodelet : public nodelet::Nodelet {
 
   std::shared_ptr<nav_msgs::OccupancyGrid> ogm_map_;
   std::shared_ptr<MapLoader> map_loader_;
+  std::shared_ptr<CollisionChecker> collision_checker_;
 
   ob::ScopedStatePtr start_state_;
   ob::ScopedStatePtr goal_state_;
