@@ -3,10 +3,10 @@
 Visualizing, animating and debugging Open Motion Planning Library (OMPL) algorithms in ROS Rviz. The package allows OMPL planners to find paths in R^2 state space with path minimizing objectives and utilizes the occupancy grid maps for collision checking. We have also added a rviz panel plugin to interface with OMPL.
 
 <p float="left">
-  <img src="assets/empty_map1.png" width="24%" />
-  <img src="assets/map_with_single_cube1.png" width="24%" /> 
-  <img src="assets/map_with_many_homotopy_classes1.png" width="24%" />
-  <img src="assets/map_with_single_narrow_passage_gap1.png" width="24%" />
+  <img src="assets/empty_map1.png" width="49%" />
+  <img src="assets/map_with_single_cube1.png" width="49%" /> 
+  <img src="assets/map_with_many_homotopy_classes1.png" width="49%" />
+  <img src="assets/map_with_single_narrow_passage_gap1.png" width="49%" />
 </p>
 
 
