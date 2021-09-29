@@ -19,6 +19,12 @@
   <depend>rviz</depend>
   <depend>rviz_visual_tools</depend>
   <depend>ompl_2d_rviz_visualizer_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>sdl</depend>
+  <depend>sdl-image</depend>
+  <depend>yaml-cpp</depend>
+  <depend>bullet</depend>
+  <depend>tf2</depend>
 
   <export>
     <nodelet plugin="${prefix}/nodelet_plugins.xml" />

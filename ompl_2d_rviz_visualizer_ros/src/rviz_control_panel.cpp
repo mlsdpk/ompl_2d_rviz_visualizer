@@ -1,5 +1,6 @@
 #include "rviz_control_panel.h"
 
+#include <ompl_2d_rviz_visualizer_msgs/MapBounds.h>
 #include <ompl_2d_rviz_visualizer_msgs/Plan.h>
 #include <ompl_2d_rviz_visualizer_msgs/Reset.h>
 #include <ompl_2d_rviz_visualizer_msgs/State.h>
@@ -177,35 +178,11 @@ OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent)
   start_state_exists_ = false;
   goal_state_exists_ = false;
 
-  // min and max bounds must obtain from map in the future
-  min_bound_x_ = -5.0;
-  max_bound_x_ = 5.0;
-  min_bound_y_ = -5.0;
-  max_bound_y_ = 5.0;
-
-  start_x_spin_box_->setRange(min_bound_x_, max_bound_x_);
-  start_y_spin_box_->setRange(min_bound_y_, max_bound_y_);
-  goal_x_spin_box_->setRange(min_bound_x_, max_bound_x_);
-  goal_y_spin_box_->setRange(min_bound_y_, max_bound_y_);
-
   loadPlannerParameters();
 
   btn_reset_->setEnabled(false);
   btn_plan_->setEnabled(true);
   ///////////////////////////////////////////////////////////////
-
-  // ROS related
-  plan_request_client_ =
-      nh_.serviceClient<ompl_2d_rviz_visualizer_msgs::Plan>("plan_request");
-
-  reset_request_client_ =
-      nh_.serviceClient<ompl_2d_rviz_visualizer_msgs::Reset>("reset_request");
-
-  start_state_setter_client_ =
-      nh_.serviceClient<ompl_2d_rviz_visualizer_msgs::State>("set_start_state");
-
-  goal_state_setter_client_ =
-      nh_.serviceClient<ompl_2d_rviz_visualizer_msgs::State>("set_goal_state");
 
   ROS_INFO_STREAM_NAMED("Control Panel",
                         "Waiting for service servers to be connected...");
@@ -214,6 +191,43 @@ OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent)
   start_state_setter_client_.waitForExistence();
   goal_state_setter_client_.waitForExistence();
   ROS_INFO_STREAM_NAMED("Control Panel", "Service servers found.");
+
+  // ROS related
+  plan_request_client_ = nh_.serviceClient<ompl_2d_rviz_visualizer_msgs::Plan>(
+      "plan_request", true);
+
+  reset_request_client_ =
+      nh_.serviceClient<ompl_2d_rviz_visualizer_msgs::Reset>("reset_request",
+                                                             true);
+
+  start_state_setter_client_ =
+      nh_.serviceClient<ompl_2d_rviz_visualizer_msgs::State>("set_start_state",
+                                                             true);
+
+  goal_state_setter_client_ =
+      nh_.serviceClient<ompl_2d_rviz_visualizer_msgs::State>("set_goal_state",
+                                                             true);
+
+  map_bounds_client_ =
+      nh_.serviceClient<ompl_2d_rviz_visualizer_msgs::MapBounds>(
+          "get_map_bounds", true);
+
+  // get min and max bounds of the map
+  ompl_2d_rviz_visualizer_msgs::MapBounds map_bounds_msg;
+  if (map_bounds_client_.call(map_bounds_msg)) {
+    min_bound_x_ = map_bounds_msg.response.min_x;
+    min_bound_y_ = map_bounds_msg.response.min_y;
+    max_bound_x_ = map_bounds_msg.response.max_x;
+    max_bound_y_ = map_bounds_msg.response.max_y;
+  } else {
+    ROS_ERROR("Failed to call map_bounds_client service.");
+    exit(1);
+  }
+
+  start_x_spin_box_->setRange(min_bound_x_, max_bound_x_);
+  start_y_spin_box_->setRange(min_bound_y_, max_bound_y_);
+  goal_x_spin_box_->setRange(min_bound_x_, max_bound_x_);
+  goal_y_spin_box_->setRange(min_bound_y_, max_bound_y_);
 }
 
 void OMPL_ControlPanel::loadPlannerParameters() {
@@ -410,13 +424,15 @@ void OMPL_ControlPanel::btn_start_clicked() {
   ompl_2d_rviz_visualizer_msgs::State msg;
   if (start_combo_box_->currentIndex() == Random) {
     generateRandomPoint(msg.request.x, msg.request.y);
+    start_x_spin_box_->setValue(msg.request.x);
+    start_y_spin_box_->setValue(msg.request.y);
   } else if (start_combo_box_->currentIndex() == Manual) {
-    //
+    msg.request.x = start_x_spin_box_->value();
+    msg.request.y = start_y_spin_box_->value();
   } else if (start_combo_box_->currentIndex() == Clicked) {
     //
   }
-  start_x_spin_box_->setValue(msg.request.x);
-  start_y_spin_box_->setValue(msg.request.y);
+
   if (start_state_setter_client_.call(msg)) {
     if (msg.response.success)
       ROS_DEBUG("set_start_state service calling succeeded.");
@@ -431,13 +447,14 @@ void OMPL_ControlPanel::btn_goal_clicked() {
   ompl_2d_rviz_visualizer_msgs::State msg;
   if (goal_combo_box_->currentIndex() == Random) {
     generateRandomPoint(msg.request.x, msg.request.y);
+    goal_x_spin_box_->setValue(msg.request.x);
+    goal_y_spin_box_->setValue(msg.request.y);
   } else if (goal_combo_box_->currentIndex() == Manual) {
-    //
+    msg.request.x = goal_x_spin_box_->value();
+    msg.request.y = goal_y_spin_box_->value();
   } else if (goal_combo_box_->currentIndex() == Clicked) {
     //
   }
-  goal_x_spin_box_->setValue(msg.request.x);
-  goal_y_spin_box_->setValue(msg.request.y);
   if (goal_state_setter_client_.call(msg)) {
     if (msg.response.success)
       ROS_DEBUG("set_goal_state service calling succeeded.");
