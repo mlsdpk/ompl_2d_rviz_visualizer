@@ -6,7 +6,7 @@
             3. map_with_many_homotopy_classes
             4. map_with_single_narrow_passage_gap 
     -->
-    <arg name="map_name" value="map_with_single_cube"/>
+    <arg name="map_name" default="empty_map"/>
 
     <arg name="nodelet_manager" default="ompl_2d_rviz_visualizer_nodelet_manager"/>
 

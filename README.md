@@ -48,3 +48,12 @@ Several occupancy grid maps are specifically chosen for testing OMPL planners, w
 1  | 2 | 3 | 4             
 :-:|:-:|:-:|:-:
 <img src="assets/empty_map0.png" width="200"/>|<img src="assets/map_with_single_cube0.png" width="200"/>|<img src="assets/map_with_many_homotopy_classes0.png" width="200"/>|<img src="assets/map_with_single_narrow_passage_gap0.png" width="200"/>
+
+## Usage
+
+Run the following launch file to use the visualizer. You can directly pass map names via command line or change it manually in the file.
+
+```
+source <YOUR_CATKIN_WORKSPACE_PATH>/devel/setup.bash
+roslaunch ompl_2d_rviz_visualizer_ros visualizer.launch map_name:=empty_map
+```
