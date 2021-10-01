@@ -140,7 +140,6 @@ class VisualizerNodelet : public nodelet::Nodelet {
     });
 
     enable_planning_ = false;
-    // solution_found_ = false;
     planning_initialized_ = false;
     planner_id_ = PLANNERS_IDS::INVALID;
     planning_obj_id_ = PLANNING_OBJS_IDS::PATH_LENGTH;
@@ -198,6 +197,11 @@ class VisualizerNodelet : public nodelet::Nodelet {
 
   bool setGoalStateService(ompl_2d_rviz_visualizer_msgs::StateRequest& req,
                            ompl_2d_rviz_visualizer_msgs::StateResponse& res) {
+    if (!(collision_checker_->isValid(req.x, req.y))) {
+      ROS_INFO("The goal state is in collision.");
+      res.success = false;
+      return true;
+    }
     (*goal_state_)[0] = req.x;
     (*goal_state_)[1] = req.y;
     rviz_renderer_->renderState((*goal_state_).get(), rviz_visual_tools::RED,
@@ -223,8 +227,8 @@ class VisualizerNodelet : public nodelet::Nodelet {
     planning_duration_ = req.duration;
     planning_iterations_ = req.iterations;
 
-    // solution_found_ = false;
     enable_planning_ = true;
+    planning_resetted_ = false;
 
     res.success = true;
     return true;
@@ -234,17 +238,9 @@ class VisualizerNodelet : public nodelet::Nodelet {
                            ompl_2d_rviz_visualizer_msgs::ResetResponse& res) {
     ROS_INFO("Resetting the planner and clearing the graph markers.");
 
-    if (req.clear_graph) {
-      // first clear all the markers
-      rviz_renderer_->deleteAllMarkers();
-      // then redraw the start and goal states
-      rviz_renderer_->renderState(
-          (*start_state_).get(), rviz_visual_tools::GREEN,
-          rviz_visual_tools::XXXLARGE, "start_goal_states", 1);
-      rviz_renderer_->renderState((*goal_state_).get(), rviz_visual_tools::RED,
-                                  rviz_visual_tools::XXXLARGE,
-                                  "start_goal_states", 2);
-    }
+    planning_initialized_ = false;
+    enable_planning_ = false;
+    planning_resetted_ = true;
     res.success = true;
     return true;
   }
@@ -358,22 +354,20 @@ class VisualizerNodelet : public nodelet::Nodelet {
 
         // render planner data in every n iteration
         if (curr_iter_ % animate_every_ == 0) {
-          std::cout << "Iteration NO: " << curr_iter_ << std::endl;
-
           // render the graph
           const ob::PlannerDataPtr planner_data(
               std::make_shared<ob::PlannerData>(si_));
           ss_->getPlannerData(*planner_data);
           rviz_renderer_->renderGraph(planner_data, rviz_visual_tools::BLUE,
                                       0.005, "planner_graph");
-
-          if (status) {
-            // render path
-            ss_->getSolutionPath().interpolate();
-            rviz_renderer_->renderPath(ss_->getSolutionPath(),
-                                       rviz_visual_tools::PURPLE, 0.02,
-                                       "final_solution");
-          }
+        }
+        if (status) {
+          // render path
+          ss_->getSolutionPath().interpolate();
+          rviz_renderer_->deleteAllMarkersInNS("final_solution");
+          rviz_renderer_->renderPath(ss_->getSolutionPath(),
+                                     rviz_visual_tools::PURPLE, 0.02,
+                                     "final_solution");
         }
 
         if (curr_iter_ == planning_iterations_) {
@@ -381,10 +375,10 @@ class VisualizerNodelet : public nodelet::Nodelet {
           if (status) {
             // render path
             ss_->getSolutionPath().interpolate();
+            rviz_renderer_->deleteAllMarkersInNS("final_solution");
             rviz_renderer_->renderPath(ss_->getSolutionPath(),
                                        rviz_visual_tools::PURPLE, 0.02,
                                        "final_solution");
-            // solution_found_ = true;
           }
         }
       }
@@ -420,9 +414,13 @@ class VisualizerNodelet : public nodelet::Nodelet {
           rviz_renderer_->renderPath(ss_->getSolutionPath(),
                                      rviz_visual_tools::PURPLE, 0.02,
                                      "final_solution");
-          // solution_found_ = true;
         }
       }
+    } else if (planning_resetted_) {
+      // only clear the graph and path markers
+      rviz_renderer_->deleteAllMarkersInNS("planner_graph");
+      rviz_renderer_->deleteAllMarkersInNS("final_solution");
+      planning_resetted_ = false;
     }
   }
 
@@ -489,8 +487,8 @@ class VisualizerNodelet : public nodelet::Nodelet {
 
   // flags
   std::atomic_bool planning_initialized_;
+  std::atomic_bool planning_resetted_;
   std::atomic_bool enable_planning_;
-  // std::atomic_bool solution_found_;
 };
 }  // namespace ompl_2d_rviz_visualizer_ros
 

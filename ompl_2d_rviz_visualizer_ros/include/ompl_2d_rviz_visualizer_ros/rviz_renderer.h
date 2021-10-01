@@ -34,6 +34,9 @@
 #include <ompl/geometric/SimpleSetup.h>
 #include <rviz_visual_tools/rviz_visual_tools.h>
 
+#include <unordered_map>
+#include <unordered_set>
+
 namespace ob = ompl::base;
 namespace og = ompl::geometric;
 namespace rvt = rviz_visual_tools;
@@ -61,6 +64,11 @@ class RvizRenderer {
    * @brief Clear all the published markers on Rviz.
    */
   bool deleteAllMarkers();
+
+  /**
+   * @brief Clear all the published markers on Rviz within specific namespace.
+   */
+  bool deleteAllMarkersInNS(const std::string& ns);
 
   /**
    * @brief Render state on rviz. State is basically a sphere with adjustable
@@ -108,6 +116,13 @@ class RvizRenderer {
                    const std::string& ns);
 
  private:
+  void addToMarkerIDs(const std::string& ns, std::size_t id);
+
+  bool publishCylinder(const Eigen::Vector3d& point1,
+                       const Eigen::Vector3d& point2, const rvt::colors& color,
+                       const double radius, const std::string& ns,
+                       std::size_t id);
+
   /**
    * @brief Convert ompl abstract state to eigen vector3D.
    * @param state ompl abstract state
@@ -121,6 +136,10 @@ class RvizRenderer {
 
   std::string base_frame_;
   rvt::RvizVisualToolsPtr visual_tools_;
+
+  // we will store all the published namespace and ids
+  // these will be useful for clearing specific marker
+  std::unordered_map<std::string, std::unordered_set<std::size_t>> marker_ids_;
 };
 
 typedef std::shared_ptr<RvizRenderer> RvizRendererPtr;

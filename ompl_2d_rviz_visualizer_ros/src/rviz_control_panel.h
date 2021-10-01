@@ -138,6 +138,7 @@ class OMPL_ControlPanel : public rviz::Panel {
 
   void generateRandomPoint(double &x, double &y);
 
+  // standard Qt objects
   QRadioButton *start_check_box_;
   QRadioButton *goal_check_box_;
   QComboBox *start_combo_box_;
@@ -162,20 +163,25 @@ class OMPL_ControlPanel : public rviz::Panel {
   QSlider *animation_speed_slider_;
   QComboBox *ptc_combo_box_;
 
+  // container to store planner parameters
   std::vector<PlannerParameterList> planners_param_list_;
 
+  // planning request stuffs
   int planner_id_;
   int planning_obj_id_;
   int planning_mode_;
 
+  // start and goal flags
   bool start_state_exists_;
   bool goal_state_exists_;
 
+  // map bounds
   double min_bound_x_;
   double max_bound_x_;
   double min_bound_y_;
   double max_bound_y_;
 
+  // random number generator
   std::mt19937 rn_gen_;
 
   // ROS related
@@ -186,6 +192,6 @@ class OMPL_ControlPanel : public rviz::Panel {
   ros::ServiceClient start_state_setter_client_;
   ros::ServiceClient goal_state_setter_client_;
   ros::ServiceClient map_bounds_client_;
-};  // namespace ompl_2d_rviz_visualizer_ros
+};
 
 }  // namespace ompl_2d_rviz_visualizer_ros

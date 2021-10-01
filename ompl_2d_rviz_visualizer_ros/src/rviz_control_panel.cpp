@@ -188,6 +188,8 @@ OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent)
   animate_every_spin_box_->setMaximum(1000000);
 
   animation_speed_slider_ = new QSlider(Qt::Orientation::Horizontal);
+  animation_speed_slider_->setMinimum(0);
+  animation_speed_slider_->setMaximum(100);
 
   QHBoxLayout* animation_hlayout = new QHBoxLayout;
   animation_hlayout->addWidget(animation_mode_check_box_);
@@ -647,7 +649,7 @@ void OMPL_ControlPanel::plan() {
     ompl_2d_rviz_visualizer_msgs::Plan msg;
     msg.request.mode = planning_mode_;
     msg.request.animate_every = animate_every_spin_box_->value();
-    msg.request.animation_speed = animation_speed_slider_->value();
+    msg.request.animation_speed = animation_speed_slider_->value() / 100.0;
     msg.request.planner_id = planner_id_;
     msg.request.objective_id = planning_obj_id_;
     msg.request.duration = planning_duration_spin_box_->value();
