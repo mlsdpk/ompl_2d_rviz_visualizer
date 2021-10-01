@@ -44,6 +44,8 @@
 #include <QRegExp>
 #include <QRegExpValidator>
 #include <QScrollArea>
+#include <QSlider>
+#include <QStandardItemModel>
 #include <QString>
 #include <QStringList>
 #include <QVBoxLayout>
@@ -63,6 +65,8 @@ static const QStringList START_GOAL_COMBO_BOX_ITEMS = {
 
 static const QStringList PLANNERS = {"<Not specified>", "rrt_connect",
                                      "rrt_star"};
+
+static const QStringList PTCS = {"Duration in seconds", "Iteration number"};
 
 static const QStringList PLANNING_OBJS = {"Minimum path length",
                                           "Maximize minimum clearance"};
@@ -98,6 +102,8 @@ class OMPL_ControlPanel : public rviz::Panel {
   void goalComboBoxActivated(int index);
   void plannerComboBoxActivated(int index);
   void planningObjectiveComboBoxActivated(int index);
+  void animationModeCheckBoxStateChanged(int state);
+  void ptcComboBoxActivated(int index);
   void btn_start_clicked();
   void btn_goal_clicked();
   void reset();
@@ -150,11 +156,17 @@ class OMPL_ControlPanel : public rviz::Panel {
   QPushButton *btn_plan_;
   QComboBox *planning_objective_combo_box_;
   QDoubleSpinBox *planning_duration_spin_box_;
+  QSpinBox *ptc_iteration_number_spin_box_;
+  QCheckBox *animation_mode_check_box_;
+  QSpinBox *animate_every_spin_box_;
+  QSlider *animation_speed_slider_;
+  QComboBox *ptc_combo_box_;
 
   std::vector<PlannerParameterList> planners_param_list_;
 
   int planner_id_;
   int planning_obj_id_;
+  int planning_mode_;
 
   bool start_state_exists_;
   bool goal_state_exists_;
