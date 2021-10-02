@@ -28,6 +28,8 @@
 
 #pragma once
 
+#define MAP_UTILS_DEBUG 0
+
 #include <nav_msgs/OccupancyGrid.h>
 
 namespace ompl_2d_rviz_visualizer_ros {
@@ -61,18 +63,19 @@ inline bool getBounds(double &min_x, double &max_x, double &min_y,
   double map_size_x = cells_size_x * resolution;
   double map_size_y = cells_size_y * resolution;
 
-  std::cout << "[DEBUG] [map_utils] Map size in meters: " << map_size_x << " X "
-            << map_size_y << std::endl;
-
   min_x = origin_x;
   min_y = origin_y;
   max_x = map_size_x - fabs(origin_x);
   max_y = map_size_y - fabs(origin_y);
 
+#if MAP_UTILS_DEBUG
+  std::cout << "[DEBUG] [map_utils] Map size in meters: " << map_size_x << " X "
+            << map_size_y << std::endl;
   std::cout << "[DEBUG] [map_utils] Map bounds (lower-left): " << min_x << ", "
             << min_y << std::endl;
   std::cout << "[DEBUG] [map_utils] Map bounds (upper-right): " << max_x << ", "
             << max_y << std::endl;
+#endif
 
   return true;
 }

@@ -70,6 +70,8 @@ class RvizRenderer {
    */
   bool deleteAllMarkersInNS(const std::string& ns);
 
+  bool deleteMarkerInNSAndID(const std::string& ns, std::size_t id);
+
   /**
    * @brief Render state on rviz. State is basically a sphere with adjustable
    * size and color.
@@ -77,6 +79,7 @@ class RvizRenderer {
    * @param color rviz_visual_tools color
    * @param scale rviz_visual_tools scale
    * @param ns namespace of marker
+   * @param id marker id
    */
   bool renderState(const ob::State* state, const rvt::colors& color,
                    const rvt::scales& scale, const std::string& ns,
@@ -89,6 +92,7 @@ class RvizRenderer {
    * @param color rviz_visual_tools color
    * @param scale rviz_visual_tools scale
    * @param ns namespace of marker
+   * @param id marker id
    */
   bool renderState(const Eigen::Vector3d& point, const rvt::colors& color,
                    const rvt::scales& scale, const std::string& ns,
@@ -110,14 +114,29 @@ class RvizRenderer {
    * @param planner_data ompl planner data
    * @param color rviz_visual_tools color
    * @param radius geometry of cylinder
+   * @param ns namespace of marker
    */
   bool renderGraph(const ob::PlannerDataPtr planner_data,
                    const rvt::colors& color, const double radius,
                    const std::string& ns);
 
  private:
+  /**
+   * @brief Store marker namespace and id to be used later.
+   * @param ns namespace of marker
+   * @param id marker id
+   */
   void addToMarkerIDs(const std::string& ns, std::size_t id);
 
+  /**
+   * @brief Publish cylinder marker to Rviz.
+   * @param point1 eigen vector3D point
+   * @param point2 eigen vector3D point
+   * @param color rviz_visual_tools color
+   * @param radius geometry of cylinder
+   * @param ns namespace of marker
+   * @param id marker id
+   */
   bool publishCylinder(const Eigen::Vector3d& point1,
                        const Eigen::Vector3d& point2, const rvt::colors& color,
                        const double radius, const std::string& ns,
@@ -130,9 +149,12 @@ class RvizRenderer {
    */
   Eigen::Vector3d stateToPoint(const ob::State* state);
 
+  /**
+   * @brief Convert ompl abstract state to ros message.
+   * @param state ompl abstract state
+   * @return geometry_msgs/Point
+   */
   geometry_msgs::Point stateToPointMsg(const ob::State* state);
-
-  bool loadMapFromYaml(std::string path_to_yaml);
 
   std::string base_frame_;
   rvt::RvizVisualToolsPtr visual_tools_;

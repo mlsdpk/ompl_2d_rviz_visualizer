@@ -79,6 +79,8 @@ enum PLANNERS_IDS { INVALID, RRT_CONNECT, RRT_STAR };
 
 enum PLANNING_OBJS_IDS { PATH_LENGTH, MAXMIN_CLEARANCE };
 
+enum PLANNING_MODE { DURATION, ITERATIONS, ANIMATION };
+
 struct PlannerParameter {
   std::string name;
   std::variant<double, int, bool> value;
@@ -117,6 +119,7 @@ class OMPL_ControlPanel : public rviz::Panel {
                            const XmlRpc::XmlRpcValue &value,
                            const std::string &range);
   bool updatePlannerParamsLayoutList(unsigned int id);
+  void enablePlannerParamsLayoutList(bool i);
 
   template <typename T>
   void get_range(T &min, T &step, T &max, const std::string &range) {

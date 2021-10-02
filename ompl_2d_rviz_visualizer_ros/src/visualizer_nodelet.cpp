@@ -66,7 +66,7 @@ enum PLANNERS_IDS { INVALID, RRT_CONNECT, RRT_STAR };
 
 enum PLANNING_OBJS_IDS { PATH_LENGTH, MAXMIN_CLEARANCE };
 
-enum PLANNING_MODE { DEFAULT, ANIMATION };
+enum PLANNING_MODE { DURATION, ITERATIONS, ANIMATION };
 
 const std::vector<std::string> PLANNER_NAMES{"invalid", "rrt_connect",
                                              "rrt_star"};
@@ -144,7 +144,7 @@ class VisualizerNodelet : public nodelet::Nodelet {
     planner_id_ = PLANNERS_IDS::INVALID;
     planning_obj_id_ = PLANNING_OBJS_IDS::PATH_LENGTH;
     planning_duration_ = 0.0;
-    animation_speed_ = 0.5;
+    animation_speed_ = 1.0;
     curr_iter_ = 0u;
     animate_every_ = 1u;
     planning_iterations_ = 1u;
@@ -372,6 +372,7 @@ class VisualizerNodelet : public nodelet::Nodelet {
 
         if (curr_iter_ == planning_iterations_) {
           enable_planning_ = false;
+          ROS_INFO("Planning finished.");
           if (status) {
             // render path
             ss_->getSolutionPath().interpolate();
@@ -383,14 +384,21 @@ class VisualizerNodelet : public nodelet::Nodelet {
         }
       }
       // DEFAULT MODE
-      else if (planning_mode_ == PLANNING_MODE::DEFAULT) {
+      else if (planning_mode_ == PLANNING_MODE::DURATION ||
+               planning_mode_ == PLANNING_MODE::ITERATIONS) {
         // Create the termination condition
-        ob::PlannerTerminationCondition ptc =
-            ob::timedPlannerTerminationCondition(planning_duration_, 0.01);
+        std::shared_ptr<ob::PlannerTerminationCondition> ptc;
+        if (planning_mode_ == PLANNING_MODE::DURATION)
+          ptc = std::make_shared<ob::PlannerTerminationCondition>(
+              ob::timedPlannerTerminationCondition(planning_duration_, 0.01));
+        else
+          ptc = std::make_shared<ob::PlannerTerminationCondition>(
+              ob::PlannerTerminationCondition(
+                  ob::IterationTerminationCondition(planning_iterations_)));
 
         // attempt to solve the problem within x seconds of planning time
         ob::PlannerStatus solved;
-        solved = ss_->solve(ptc);
+        solved = ss_->solve(*ptc);
 
         // render graph
         const ob::PlannerDataPtr planner_data(
@@ -415,6 +423,8 @@ class VisualizerNodelet : public nodelet::Nodelet {
                                      rviz_visual_tools::PURPLE, 0.02,
                                      "final_solution");
         }
+      } else {
+        // error
       }
     } else if (planning_resetted_) {
       // only clear the graph and path markers
@@ -431,9 +441,6 @@ class VisualizerNodelet : public nodelet::Nodelet {
   ros::NodeHandle mt_nh_;
   ros::NodeHandle private_nh_;
 
-  // subscribers
-  // publishers
-
   // service servers
   ros::ServiceServer plan_request_srv_;
   ros::ServiceServer reset_request_srv_;
@@ -442,8 +449,8 @@ class VisualizerNodelet : public nodelet::Nodelet {
   ros::ServiceServer map_bounds_srv_;
 
   // timers
-  ros::WallTimer planning_timer_;
   double planning_timer_interval_;
+  ros::WallTimer planning_timer_;
 
   // rendering stuffs
   RvizRendererPtr rviz_renderer_;
@@ -457,19 +464,19 @@ class VisualizerNodelet : public nodelet::Nodelet {
   };
 
   MapBounds map_bounds_;
+  std::shared_ptr<nav_msgs::OccupancyGrid> ogm_map_;
+  std::shared_ptr<MapLoader> map_loader_;
 
   // ompl related
   ob::StateSpacePtr space_;
   og::SimpleSetupPtr ss_;
   ob::SpaceInformationPtr si_;
   std::shared_ptr<ob::OptimizationObjective> optimization_objective_;
-
-  std::shared_ptr<nav_msgs::OccupancyGrid> ogm_map_;
-  std::shared_ptr<MapLoader> map_loader_;
-  std::shared_ptr<CollisionChecker> collision_checker_;
-
   ob::ScopedStatePtr start_state_;
   ob::ScopedStatePtr goal_state_;
+
+  // collision checker
+  std::shared_ptr<CollisionChecker> collision_checker_;
 
   int planning_mode_;
   int planner_id_;
@@ -479,11 +486,9 @@ class VisualizerNodelet : public nodelet::Nodelet {
   ot::point planning_init_time_;
   unsigned int curr_iter_;
 
-  std::mutex animate_every_mutex_;
   unsigned int animate_every_;
-
-  std::mutex animation_speed_mutex_;
   double animation_speed_;
+  std::mutex animation_speed_mutex_;
 
   // flags
   std::atomic_bool planning_initialized_;

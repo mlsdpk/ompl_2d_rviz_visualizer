@@ -75,6 +75,38 @@ bool RvizRenderer::deleteAllMarkersInNS(const std::string& ns) {
     marker_ids_.erase(ns);
     return visual_tools_->trigger();
   } else {
+    ROS_DEBUG("Namespace %s not found in marker IDs.", ns.c_str());
+    return false;
+  }
+}
+
+bool RvizRenderer::deleteMarkerInNSAndID(const std::string& ns,
+                                         std::size_t id) {
+  // check specific namespace has already been published
+  auto marker_ids_ns_it = marker_ids_.find(ns);
+  if (marker_ids_ns_it != marker_ids_.end()) {
+    // if so, we find the specific id
+    auto marker_ids_id_it = marker_ids_ns_it->second.find(id);
+    if (marker_ids_id_it != marker_ids_ns_it->second.end()) {
+      // if the id is found,
+      // publish temporary marker with delete action
+      visualization_msgs::Marker temp_marker;
+      temp_marker.header.frame_id = base_frame_;
+      temp_marker.ns = ns;
+      temp_marker.action = visualization_msgs::Marker::DELETE;
+      temp_marker.id = id;
+      temp_marker.header.stamp = ros::Time::now();
+      visual_tools_->publishMarker(temp_marker);
+
+      // don't forget to remove the id from marker_ids ns
+      marker_ids_ns_it->second.erase(id);
+      return visual_tools_->trigger();
+    } else {
+      ROS_DEBUG("ID %ld not found in marker namespace %s.", id, ns.c_str());
+      return false;
+    }
+  } else {
+    ROS_DEBUG("Namespace %s not found in marker IDs.", ns.c_str());
     return false;
   }
 }
@@ -106,7 +138,7 @@ bool RvizRenderer::renderPath(const og::PathGeometric& path,
                               const rvt::colors& color, const double radius,
                               const std::string& ns) {
   if (path.getStateCount() <= 0) {
-    ROS_WARN_STREAM_NAMED("rviz_renderer", "No states found in path");
+    ROS_WARN("No states found in path");
     return false;
   }
 
@@ -174,15 +206,20 @@ bool RvizRenderer::renderGraph(const ob::PlannerDataPtr planner_data,
       }
     }
   }
+  visual_tools_->trigger();
 
-  // TODO (Phone): This approach has some limitations.
   // We are currently overwriting IDs with ADD option (which is still ok)
   // But if our graph is pruned, there will be left-over IDs with higher
   // numbers, which needs to be deleted (remove from the rviz scene).
   // One way to solve this might be - delete unused IDs from this current
   // namespace using stored marker_ids_.
 
-  return visual_tools_->trigger();
+  // delete left-over markers
+  // run until marker id not found in namespace
+  while (deleteMarkerInNSAndID(ns, id++)) {
+  }
+
+  return true;
 }
 
 bool RvizRenderer::publishCylinder(const Eigen::Vector3d& point1,
@@ -234,7 +271,7 @@ bool RvizRenderer::publishCylinder(const Eigen::Vector3d& point1,
 
 Eigen::Vector3d RvizRenderer::stateToPoint(const ob::State* state) {
   if (!state) {
-    ROS_FATAL_NAMED("rviz_renderer", "No state found for vertex");
+    ROS_FATAL("No state found for vertex");
     exit(1);
   }
   // Convert to RealVectorStateSpace
@@ -252,7 +289,7 @@ Eigen::Vector3d RvizRenderer::stateToPoint(const ob::State* state) {
 
 geometry_msgs::Point RvizRenderer::stateToPointMsg(const ob::State* state) {
   if (!state) {
-    ROS_FATAL_NAMED("rviz_renderer", "No state found for vertex");
+    ROS_FATAL("No state found for vertex");
     exit(1);
   }
 

@@ -40,7 +40,7 @@ OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent)
       prv_nh_{"~ompl_controlpanel"},
       planner_id_{PLANNERS_IDS::INVALID},
       planning_obj_id_{PLANNING_OBJS_IDS::PATH_LENGTH},
-      planning_mode_{0} {
+      planning_mode_{PLANNING_MODE::DURATION} {
   ////////////////////
   // Start layout
   ////////////////////
@@ -188,7 +188,7 @@ OMPL_ControlPanel::OMPL_ControlPanel(QWidget* parent)
   animate_every_spin_box_->setMaximum(1000000);
 
   animation_speed_slider_ = new QSlider(Qt::Orientation::Horizontal);
-  animation_speed_slider_->setMinimum(0);
+  animation_speed_slider_->setMinimum(1);
   animation_speed_slider_->setMaximum(100);
 
   QHBoxLayout* animation_hlayout = new QHBoxLayout;
@@ -475,10 +475,8 @@ void OMPL_ControlPanel::animationModeCheckBoxStateChanged(int state) {
     ptc_combo_box_->setCurrentIndex(1);
     planning_duration_spin_box_->setEnabled(false);
     ptc_iteration_number_spin_box_->setEnabled(true);
-    planning_mode_ = 1;
   } else {
     item->setEnabled(true);
-    planning_mode_ = 0;
   }
 }
 
@@ -538,6 +536,12 @@ bool OMPL_ControlPanel::updatePlannerParamsLayoutList(unsigned int id) {
   return true;
 }
 
+void OMPL_ControlPanel::enablePlannerParamsLayoutList(bool i) {
+  for (const auto layout : planner_params_layout_list_) {
+    layout->itemAt(1)->widget()->setEnabled(i);
+  }
+}
+
 void OMPL_ControlPanel::generateRandomPoint(double& x, double& y) {
   std::random_device rd;
   rn_gen_ = std::mt19937(rd());
@@ -562,13 +566,14 @@ void OMPL_ControlPanel::btn_start_clicked() {
   }
 
   if (start_state_setter_client_.call(msg)) {
-    if (msg.response.success)
+    if (msg.response.success) {
       ROS_DEBUG("set_start_state service calling succeeded.");
+      start_state_exists_ = true;
+    }
   } else {
     ROS_ERROR("Failed to call set_start_state service.");
-    exit(-1);
+    exit(1);
   }
-  start_state_exists_ = true;
 }
 
 void OMPL_ControlPanel::btn_goal_clicked() {
@@ -584,13 +589,14 @@ void OMPL_ControlPanel::btn_goal_clicked() {
     //
   }
   if (goal_state_setter_client_.call(msg)) {
-    if (msg.response.success)
+    if (msg.response.success) {
       ROS_DEBUG("set_goal_state service calling succeeded.");
+      goal_state_exists_ = true;
+    }
   } else {
     ROS_ERROR("Failed to call set_goal_state service.");
-    exit(-1);
+    exit(1);
   }
-  goal_state_exists_ = true;
 }
 
 void OMPL_ControlPanel::reset() {
@@ -602,15 +608,23 @@ void OMPL_ControlPanel::reset() {
     if (msg.response.success) ROS_DEBUG("Reset Service calling succeeded.");
   } else {
     ROS_ERROR("Failed to call reset_request service.");
-    exit(-1);
+    exit(1);
   }
   btn_reset_->setEnabled(false);
-  btn_plan_->setEnabled(true);
 
+  btn_plan_->setEnabled(true);
   start_check_box_->setEnabled(true);
   goal_check_box_->setEnabled(true);
   start_check_box_->setChecked(true);
   startCheckBoxStateChanged(true);
+  planner_combo_box_->setEnabled(true);
+  enablePlannerParamsLayoutList(true);
+  planning_objective_combo_box_->setEnabled(true);
+  animation_mode_check_box_->setEnabled(true);
+  animation_mode_check_box_->setChecked(false);
+  ptc_combo_box_->setEnabled(true);
+  animationModeCheckBoxStateChanged(Qt::Unchecked);
+  ptcComboBoxActivated(ptc_combo_box_->currentIndex());
 }
 
 void OMPL_ControlPanel::plan() {
@@ -646,6 +660,15 @@ void OMPL_ControlPanel::plan() {
       }
     }
 
+    if (animation_mode_check_box_->isChecked())
+      planning_mode_ = PLANNING_MODE::ANIMATION;
+    else {
+      if (ptc_combo_box_->currentIndex() == 0)
+        planning_mode_ = PLANNING_MODE::DURATION;
+      else
+        planning_mode_ = PLANNING_MODE::ITERATIONS;
+    }
+
     ompl_2d_rviz_visualizer_msgs::Plan msg;
     msg.request.mode = planning_mode_;
     msg.request.animate_every = animate_every_spin_box_->value();
@@ -658,12 +681,14 @@ void OMPL_ControlPanel::plan() {
       if (msg.response.success) ROS_DEBUG("Plan Service calling succeeded.");
     } else {
       ROS_ERROR("Failed to call plan_request service.");
-      exit(-1);
+      exit(1);
     }
 
+    // enable stuffs
     btn_reset_->setEnabled(true);
-    btn_plan_->setEnabled(false);
 
+    // disable stuffs
+    btn_plan_->setEnabled(false);
     start_check_box_->setEnabled(false);
     start_combo_box_->setEnabled(false);
     start_x_spin_box_->setEnabled(false);
@@ -674,7 +699,19 @@ void OMPL_ControlPanel::plan() {
     goal_x_spin_box_->setEnabled(false);
     goal_y_spin_box_->setEnabled(false);
     btn_goal_->setEnabled(false);
+    planner_combo_box_->setEnabled(false);
+    enablePlannerParamsLayoutList(false);
+    planning_objective_combo_box_->setEnabled(false);
+    animation_mode_check_box_->setEnabled(false);
+    animate_every_spin_box_->setEnabled(false);
+    animation_speed_slider_->setEnabled(false);
+    ptc_combo_box_->setEnabled(false);
+    planning_duration_spin_box_->setEnabled(false);
+    ptc_iteration_number_spin_box_->setEnabled(false);
   }
+  ROS_WARN(
+      "Cannot start planning. Make sure start, goal states and planning "
+      "algorithm has been selected.");
 }
 
 void OMPL_ControlPanel::save(rviz::Config config) const {
