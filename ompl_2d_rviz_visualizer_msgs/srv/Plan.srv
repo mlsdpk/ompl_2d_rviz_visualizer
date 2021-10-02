@@ -1,10 +1,32 @@
+# visualization mode
+# 0 - duration
+# 1 - iterations
+# 2 - animation mode
+uint8 mode
+
+# render planner data every n iteration
+# only used in animation mode
+uint32 animate_every
+
+# speed to control the animation (0.0 to 1.0)
+# only used in animation mode
+float64 animation_speed
+
 # planner id
 uint8 planner_id
+
+# optimization objective
+uint8 objective_id
+
+# termination conditions
+# time and iteration
+# note that, time termination condition is only available
+# in no animation mode (mode 0)
 
 # timed termination condition
 float64 duration
 
-# optimization objective
-uint8 objective_id
+# iteration termination condition
+uint32 iterations
 ---
 bool success

@@ -33,6 +33,8 @@
 
 #pragma once
 
+#define MAPLOADER_DEBUG 0
+
 #include <SDL/SDL_image.h>
 #include <nav_msgs/OccupancyGrid.h>
 #include <ompl_2d_rviz_visualizer_ros/map_utils.h>

@@ -32,6 +32,7 @@
 #include <ompl/base/objectives/MaximizeMinClearanceObjective.h>
 #include <ompl/base/objectives/PathLengthOptimizationObjective.h>
 #include <ompl/base/spaces/SE3StateSpace.h>
+#include <ompl/base/terminationconditions/IterationTerminationCondition.h>
 #include <ompl/config.h>
 #include <ompl/geometric/SimpleSetup.h>
 #include <ompl/geometric/planners/rrt/InformedRRTstar.h>
@@ -57,12 +58,15 @@
 
 namespace ob = ompl::base;
 namespace og = ompl::geometric;
+namespace ot = ompl::time;
 
 namespace ompl_2d_rviz_visualizer_ros {
 
 enum PLANNERS_IDS { INVALID, RRT_CONNECT, RRT_STAR };
 
 enum PLANNING_OBJS_IDS { PATH_LENGTH, MAXMIN_CLEARANCE };
+
+enum PLANNING_MODE { DURATION, ITERATIONS, ANIMATION };
 
 const std::vector<std::string> PLANNER_NAMES{"invalid", "rrt_connect",
                                              "rrt_star"};
@@ -136,11 +140,14 @@ class VisualizerNodelet : public nodelet::Nodelet {
     });
 
     enable_planning_ = false;
-    solution_found_ = false;
-    rendering_finished_ = false;
+    planning_initialized_ = false;
     planner_id_ = PLANNERS_IDS::INVALID;
     planning_obj_id_ = PLANNING_OBJS_IDS::PATH_LENGTH;
     planning_duration_ = 0.0;
+    animation_speed_ = 1.0;
+    curr_iter_ = 0u;
+    animate_every_ = 1u;
+    planning_iterations_ = 1u;
 
     // service servers
     start_state_setter_srv_ = mt_nh_.advertiseService(
@@ -164,11 +171,11 @@ class VisualizerNodelet : public nodelet::Nodelet {
         &VisualizerNodelet::getMapBoundsService, this);
 
     // timers
-    planning_timer_ = mt_nh_.createWallTimer(
-        ros::WallDuration(0.001), &VisualizerNodelet::planningTimerCB, this);
-
-    rendering_timer_ = mt_nh_.createWallTimer(
-        ros::WallDuration(0.001), &VisualizerNodelet::renderingTimerCB, this);
+    // TODO: this interval must be set from ros param
+    planning_timer_interval_ = 0.001;
+    planning_timer_ =
+        mt_nh_.createWallTimer(ros::WallDuration(planning_timer_interval_),
+                               &VisualizerNodelet::planningTimerCB, this);
   }
 
   bool setStartStateService(ompl_2d_rviz_visualizer_msgs::StateRequest& req,
@@ -190,6 +197,11 @@ class VisualizerNodelet : public nodelet::Nodelet {
 
   bool setGoalStateService(ompl_2d_rviz_visualizer_msgs::StateRequest& req,
                            ompl_2d_rviz_visualizer_msgs::StateResponse& res) {
+    if (!(collision_checker_->isValid(req.x, req.y))) {
+      ROS_INFO("The goal state is in collision.");
+      res.success = false;
+      return true;
+    }
     (*goal_state_)[0] = req.x;
     (*goal_state_)[1] = req.y;
     rviz_renderer_->renderState((*goal_state_).get(), rviz_visual_tools::RED,
@@ -204,13 +216,19 @@ class VisualizerNodelet : public nodelet::Nodelet {
     ROS_INFO("Planning request received.");
     ROS_INFO("Planner ID: %s", PLANNER_NAMES[req.planner_id].c_str());
 
+    planning_mode_ = req.mode;
+
+    // TODO: these two must be thread safe and editable during planning
+    animate_every_ = req.animate_every;
+    animation_speed_ = req.animation_speed;
+
     planner_id_ = req.planner_id;
     planning_obj_id_ = req.objective_id;
     planning_duration_ = req.duration;
+    planning_iterations_ = req.iterations;
 
-    solution_found_ = false;
-    rendering_finished_ = false;
     enable_planning_ = true;
+    planning_resetted_ = false;
 
     res.success = true;
     return true;
@@ -220,17 +238,9 @@ class VisualizerNodelet : public nodelet::Nodelet {
                            ompl_2d_rviz_visualizer_msgs::ResetResponse& res) {
     ROS_INFO("Resetting the planner and clearing the graph markers.");
 
-    if (req.clear_graph) {
-      // first clear all the markers
-      rviz_renderer_->deleteAllMarkers();
-      // then redraw the start and goal states
-      rviz_renderer_->renderState(
-          (*start_state_).get(), rviz_visual_tools::GREEN,
-          rviz_visual_tools::XXXLARGE, "start_goal_states", 1);
-      rviz_renderer_->renderState((*goal_state_).get(), rviz_visual_tools::RED,
-                                  rviz_visual_tools::XXXLARGE,
-                                  "start_goal_states", 2);
-    }
+    planning_initialized_ = false;
+    enable_planning_ = false;
+    planning_resetted_ = true;
     res.success = true;
     return true;
   }
@@ -245,111 +255,182 @@ class VisualizerNodelet : public nodelet::Nodelet {
     return true;
   }
 
+  void initPlanning() {
+    // choose the optimization objective
+    switch (planning_obj_id_) {
+      case PATH_LENGTH:
+        optimization_objective_ =
+            std::make_shared<ob::PathLengthOptimizationObjective>(si_);
+        break;
+
+      case MAXMIN_CLEARANCE:
+        optimization_objective_ =
+            std::make_shared<ob::MaximizeMinClearanceObjective>(si_);
+        break;
+
+      default:
+        ROS_ERROR("Error setting OMPL optimization objective.");
+        exit(1);
+        break;
+    }
+    ss_->setOptimizationObjective(optimization_objective_);
+
+    // choose the planner
+    switch (planner_id_) {
+      case RRT_CONNECT:
+        ss_->setPlanner(ob::PlannerPtr(std::make_shared<og::RRTConnect>(si_)));
+        break;
+      case RRT_STAR:
+        ss_->setPlanner(ob::PlannerPtr(std::make_shared<og::RRTstar>(si_)));
+        break;
+      default:
+        break;
+    }
+
+    // get latest planner params from the parameter server
+    std::vector<std::string> param_names;
+    ss_->getPlanner()->params().getParamNames(param_names);
+    std::map<std::string, std::string> updated_param_names_values;
+    for (const auto& n : param_names) {
+      std::string param_name =
+          "ompl_planner_parameters/" + PLANNER_NAMES[planner_id_] + "/" + n;
+      XmlRpc::XmlRpcValue param;
+      if (private_nh_.hasParam(param_name)) {
+        private_nh_.getParam(param_name, param);
+
+        if (param.getType() == XmlRpc::XmlRpcValue::TypeDouble) {
+          updated_param_names_values[n] =
+              std::to_string(static_cast<double>(param));
+        } else if (param.getType() == XmlRpc::XmlRpcValue::TypeInt) {
+          updated_param_names_values[n] =
+              std::to_string(static_cast<int>(param));
+        } else if (param.getType() == XmlRpc::XmlRpcValue::TypeBoolean) {
+          updated_param_names_values[n] =
+              std::to_string(static_cast<bool>(param));
+        }
+      }
+    }
+    ss_->getPlanner()->params().setParams(updated_param_names_values);
+
+    ROS_INFO("Planner parameters updated.");
+
+    ss_->clear();
+    ss_->clearStartStates();
+
+    // set the start and goal states
+    ss_->setStartAndGoalStates(*start_state_, *goal_state_);
+
+    ss_->setup();
+
+    curr_iter_ = 0u;
+
+    planning_init_time_ = ot::now();
+    planning_initialized_ = true;
+  }
+
   void planningTimerCB(const ros::WallTimerEvent& event) {
     if (enable_planning_) {
-      // choose the optimization objective
-      switch (planning_obj_id_) {
-        case PATH_LENGTH:
-          optimization_objective_ =
-              std::make_shared<ob::PathLengthOptimizationObjective>(si_);
-          break;
+      if (!planning_initialized_) initPlanning();
 
-        case MAXMIN_CLEARANCE:
-          optimization_objective_ =
-              std::make_shared<ob::MaximizeMinClearanceObjective>(si_);
-          break;
+      // ANIMATION MODE
+      if (planning_mode_ == PLANNING_MODE::ANIMATION) {
+        // we control the planning and animating time
+        // Note: only control in animating mode
 
-        default:
-          ROS_ERROR("Error setting OMPL optimization objective.");
-          exit(-1);
-          break;
-      }
-      ss_->setOptimizationObjective(optimization_objective_);
+        // calculate the animation time
+        animation_speed_mutex_.lock();
+        auto time_diff = planning_timer_interval_ / animation_speed_;
+        animation_speed_mutex_.unlock();
 
-      // choose the planner
-      switch (planner_id_) {
-        case RRT_CONNECT:
-          ss_->setPlanner(
-              ob::PlannerPtr(std::make_shared<og::RRTConnect>(si_)));
-          break;
-        case RRT_STAR:
-          ss_->setPlanner(ob::PlannerPtr(std::make_shared<og::RRTstar>(si_)));
-          break;
-        default:
-          break;
-      }
+        if ((ot::seconds(ot::now() - planning_init_time_)) < time_diff) return;
+        planning_init_time_ = ot::now();
 
-      // get latest planner params from the parameter server
-      std::vector<std::string> param_names;
-      ss_->getPlanner()->params().getParamNames(param_names);
-      std::map<std::string, std::string> updated_param_names_values;
-      for (const auto& n : param_names) {
-        std::string param_name =
-            "ompl_planner_parameters/" + PLANNER_NAMES[planner_id_] + "/" + n;
-        XmlRpc::XmlRpcValue param;
-        if (private_nh_.hasParam(param_name)) {
-          private_nh_.getParam(param_name, param);
+        // create the planner termination condition
+        ob::PlannerTerminationCondition ptc = ob::PlannerTerminationCondition(
+            ob::IterationTerminationCondition(1u));
+        ob::PlannerStatus status = ss_->getPlanner()->solve(ptc);
+        // increase iteration number
+        ++curr_iter_;
 
-          if (param.getType() == XmlRpc::XmlRpcValue::TypeDouble) {
-            updated_param_names_values[n] =
-                std::to_string(static_cast<double>(param));
-          } else if (param.getType() == XmlRpc::XmlRpcValue::TypeInt) {
-            updated_param_names_values[n] =
-                std::to_string(static_cast<int>(param));
-          } else if (param.getType() == XmlRpc::XmlRpcValue::TypeBoolean) {
-            updated_param_names_values[n] =
-                std::to_string(static_cast<bool>(param));
+        // render planner data in every n iteration
+        if (curr_iter_ % animate_every_ == 0) {
+          // render the graph
+          const ob::PlannerDataPtr planner_data(
+              std::make_shared<ob::PlannerData>(si_));
+          ss_->getPlannerData(*planner_data);
+          rviz_renderer_->renderGraph(planner_data, rviz_visual_tools::BLUE,
+                                      0.005, "planner_graph");
+        }
+        if (status) {
+          // render path
+          ss_->getSolutionPath().interpolate();
+          rviz_renderer_->deleteAllMarkersInNS("final_solution");
+          rviz_renderer_->renderPath(ss_->getSolutionPath(),
+                                     rviz_visual_tools::PURPLE, 0.02,
+                                     "final_solution");
+        }
+
+        if (curr_iter_ == planning_iterations_) {
+          enable_planning_ = false;
+          ROS_INFO("Planning finished.");
+          if (status) {
+            // render path
+            ss_->getSolutionPath().interpolate();
+            rviz_renderer_->deleteAllMarkersInNS("final_solution");
+            rviz_renderer_->renderPath(ss_->getSolutionPath(),
+                                       rviz_visual_tools::PURPLE, 0.02,
+                                       "final_solution");
           }
         }
       }
-      ss_->getPlanner()->params().setParams(updated_param_names_values);
+      // DEFAULT MODE
+      else if (planning_mode_ == PLANNING_MODE::DURATION ||
+               planning_mode_ == PLANNING_MODE::ITERATIONS) {
+        // Create the termination condition
+        std::shared_ptr<ob::PlannerTerminationCondition> ptc;
+        if (planning_mode_ == PLANNING_MODE::DURATION)
+          ptc = std::make_shared<ob::PlannerTerminationCondition>(
+              ob::timedPlannerTerminationCondition(planning_duration_, 0.01));
+        else
+          ptc = std::make_shared<ob::PlannerTerminationCondition>(
+              ob::PlannerTerminationCondition(
+                  ob::IterationTerminationCondition(planning_iterations_)));
 
-      ROS_INFO("Planner parameters updated.");
+        // attempt to solve the problem within x seconds of planning time
+        ob::PlannerStatus solved;
+        solved = ss_->solve(*ptc);
 
-      // Create the termination condition
-      ob::PlannerTerminationCondition ptc =
-          ob::timedPlannerTerminationCondition(planning_duration_, 0.01);
+        // render graph
+        const ob::PlannerDataPtr planner_data(
+            std::make_shared<ob::PlannerData>(si_));
+        ss_->getPlannerData(*planner_data);
 
-      ss_->clear();
-      ss_->clearStartStates();
+        ROS_INFO("Number of start vertices: %d",
+                 planner_data->numStartVertices());
+        ROS_INFO("Number of goal vertices: %d",
+                 planner_data->numGoalVertices());
+        ROS_INFO("Number of vertices: %d", planner_data->numVertices());
+        ROS_INFO("Number of edges: %d", planner_data->numEdges());
 
-      // set the start and goal states
-      ss_->setStartAndGoalStates(*start_state_, *goal_state_);
-
-      // attempt to solve the problem within x seconds of planning time
-      ob::PlannerStatus solved;
-      solved = ss_->solve(ptc);
-
-      if (solved) {
+        rviz_renderer_->renderGraph(planner_data, rviz_visual_tools::BLUE,
+                                    0.005, "planner_graph");
         enable_planning_ = false;
-        solution_found_ = true;
+        if (solved) {
+          // render path
+          ss_->getSolutionPath().interpolate();
+
+          rviz_renderer_->renderPath(ss_->getSolutionPath(),
+                                     rviz_visual_tools::PURPLE, 0.02,
+                                     "final_solution");
+        }
+      } else {
+        // error
       }
-    }
-  }
-
-  void renderingTimerCB(const ros::WallTimerEvent& event) {
-    if (solution_found_ && !rendering_finished_) {
-      // render graph
-      const ob::PlannerDataPtr planner_data(
-          std::make_shared<ob::PlannerData>(si_));
-      ss_->getPlannerData(*planner_data);
-
-      ROS_INFO("Number of start vertices: %d",
-               planner_data->numStartVertices());
-      ROS_INFO("Number of goal vertices: %d", planner_data->numGoalVertices());
-      ROS_INFO("Number of vertices: %d", planner_data->numVertices());
-      ROS_INFO("Number of edges: %d", planner_data->numEdges());
-
-      rviz_renderer_->renderGraph(planner_data, rviz_visual_tools::BLUE, 0.005,
-                                  "planner_graph");
-
-      // render path
-      ss_->getSolutionPath().interpolate();
-
-      rviz_renderer_->renderPath(ss_->getSolutionPath(),
-                                 rviz_visual_tools::PURPLE, 0.02,
-                                 "final_solution");
-      rendering_finished_ = true;
+    } else if (planning_resetted_) {
+      // only clear the graph and path markers
+      rviz_renderer_->deleteAllMarkersInNS("planner_graph");
+      rviz_renderer_->deleteAllMarkersInNS("final_solution");
+      planning_resetted_ = false;
     }
   }
 
@@ -360,9 +441,6 @@ class VisualizerNodelet : public nodelet::Nodelet {
   ros::NodeHandle mt_nh_;
   ros::NodeHandle private_nh_;
 
-  // subscribers
-  // publishers
-
   // service servers
   ros::ServiceServer plan_request_srv_;
   ros::ServiceServer reset_request_srv_;
@@ -371,8 +449,8 @@ class VisualizerNodelet : public nodelet::Nodelet {
   ros::ServiceServer map_bounds_srv_;
 
   // timers
+  double planning_timer_interval_;
   ros::WallTimer planning_timer_;
-  ros::WallTimer rendering_timer_;
 
   // rendering stuffs
   RvizRendererPtr rviz_renderer_;
@@ -386,28 +464,36 @@ class VisualizerNodelet : public nodelet::Nodelet {
   };
 
   MapBounds map_bounds_;
+  std::shared_ptr<nav_msgs::OccupancyGrid> ogm_map_;
+  std::shared_ptr<MapLoader> map_loader_;
 
   // ompl related
   ob::StateSpacePtr space_;
   og::SimpleSetupPtr ss_;
   ob::SpaceInformationPtr si_;
   std::shared_ptr<ob::OptimizationObjective> optimization_objective_;
-
-  std::shared_ptr<nav_msgs::OccupancyGrid> ogm_map_;
-  std::shared_ptr<MapLoader> map_loader_;
-  std::shared_ptr<CollisionChecker> collision_checker_;
-
   ob::ScopedStatePtr start_state_;
   ob::ScopedStatePtr goal_state_;
 
+  // collision checker
+  std::shared_ptr<CollisionChecker> collision_checker_;
+
+  int planning_mode_;
   int planner_id_;
   int planning_obj_id_;
   double planning_duration_;
+  unsigned int planning_iterations_;
+  ot::point planning_init_time_;
+  unsigned int curr_iter_;
+
+  unsigned int animate_every_;
+  double animation_speed_;
+  std::mutex animation_speed_mutex_;
 
   // flags
+  std::atomic_bool planning_initialized_;
+  std::atomic_bool planning_resetted_;
   std::atomic_bool enable_planning_;
-  std::atomic_bool solution_found_;
-  std::atomic_bool rendering_finished_;
 };
 }  // namespace ompl_2d_rviz_visualizer_ros
 

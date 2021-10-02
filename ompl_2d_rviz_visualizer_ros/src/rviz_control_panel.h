@@ -44,6 +44,8 @@
 #include <QRegExp>
 #include <QRegExpValidator>
 #include <QScrollArea>
+#include <QSlider>
+#include <QStandardItemModel>
 #include <QString>
 #include <QStringList>
 #include <QVBoxLayout>
@@ -64,6 +66,8 @@ static const QStringList START_GOAL_COMBO_BOX_ITEMS = {
 static const QStringList PLANNERS = {"<Not specified>", "rrt_connect",
                                      "rrt_star"};
 
+static const QStringList PTCS = {"Duration in seconds", "Iteration number"};
+
 static const QStringList PLANNING_OBJS = {"Minimum path length",
                                           "Maximize minimum clearance"};
 
@@ -74,6 +78,8 @@ enum START_GOAL_COMBO_BOX_IDS { Random, Manual, Clicked };
 enum PLANNERS_IDS { INVALID, RRT_CONNECT, RRT_STAR };
 
 enum PLANNING_OBJS_IDS { PATH_LENGTH, MAXMIN_CLEARANCE };
+
+enum PLANNING_MODE { DURATION, ITERATIONS, ANIMATION };
 
 struct PlannerParameter {
   std::string name;
@@ -98,6 +104,8 @@ class OMPL_ControlPanel : public rviz::Panel {
   void goalComboBoxActivated(int index);
   void plannerComboBoxActivated(int index);
   void planningObjectiveComboBoxActivated(int index);
+  void animationModeCheckBoxStateChanged(int state);
+  void ptcComboBoxActivated(int index);
   void btn_start_clicked();
   void btn_goal_clicked();
   void reset();
@@ -111,6 +119,7 @@ class OMPL_ControlPanel : public rviz::Panel {
                            const XmlRpc::XmlRpcValue &value,
                            const std::string &range);
   bool updatePlannerParamsLayoutList(unsigned int id);
+  void enablePlannerParamsLayoutList(bool i);
 
   template <typename T>
   void get_range(T &min, T &step, T &max, const std::string &range) {
@@ -132,6 +141,7 @@ class OMPL_ControlPanel : public rviz::Panel {
 
   void generateRandomPoint(double &x, double &y);
 
+  // standard Qt objects
   QRadioButton *start_check_box_;
   QRadioButton *goal_check_box_;
   QComboBox *start_combo_box_;
@@ -150,20 +160,31 @@ class OMPL_ControlPanel : public rviz::Panel {
   QPushButton *btn_plan_;
   QComboBox *planning_objective_combo_box_;
   QDoubleSpinBox *planning_duration_spin_box_;
+  QSpinBox *ptc_iteration_number_spin_box_;
+  QCheckBox *animation_mode_check_box_;
+  QSpinBox *animate_every_spin_box_;
+  QSlider *animation_speed_slider_;
+  QComboBox *ptc_combo_box_;
 
+  // container to store planner parameters
   std::vector<PlannerParameterList> planners_param_list_;
 
+  // planning request stuffs
   int planner_id_;
   int planning_obj_id_;
+  int planning_mode_;
 
+  // start and goal flags
   bool start_state_exists_;
   bool goal_state_exists_;
 
+  // map bounds
   double min_bound_x_;
   double max_bound_x_;
   double min_bound_y_;
   double max_bound_y_;
 
+  // random number generator
   std::mt19937 rn_gen_;
 
   // ROS related
@@ -174,6 +195,6 @@ class OMPL_ControlPanel : public rviz::Panel {
   ros::ServiceClient start_state_setter_client_;
   ros::ServiceClient goal_state_setter_client_;
   ros::ServiceClient map_bounds_client_;
-};  // namespace ompl_2d_rviz_visualizer_ros
+};
 
 }  // namespace ompl_2d_rviz_visualizer_ros

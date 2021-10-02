@@ -54,7 +54,7 @@ bool MapLoader::loadMapFromYaml(const std::string &path_to_yaml,
     return false;
   }
 
-  std::cout << "[INFO] [map_loader]: Loading yaml file: " << path_to_yaml
+  std::cout << "[ INFO] [map_loader]: Loading yaml file: " << path_to_yaml
             << std::endl;
 
   LoadParameters load_parameters;
@@ -129,6 +129,7 @@ bool MapLoader::loadMapYaml(LoadParameters &load_parameters,
     load_parameters.negate = yamlGetValue<bool>(doc, "negate");
   }
 
+#if MAPLOADER_DEBUG
   std::cout << "[DEBUG] [map_loader]: resolution: "
             << load_parameters.resolution << std::endl;
   std::cout << "[DEBUG] [map_loader]: origin[0]: " << load_parameters.origin[0]
@@ -145,6 +146,7 @@ bool MapLoader::loadMapYaml(LoadParameters &load_parameters,
             << mapModeToString(load_parameters.mode) << std::endl;
   std::cout << "[DEBUG] [map_loader]: negate: " << load_parameters.negate
             << std::endl;  // NOLINT
+#endif
 
   return true;
 }
@@ -260,10 +262,12 @@ void MapLoader::loadMapFromFile(nav_msgs::OccupancyGrid &map,
   msg.header.frame_id = map_frame_name_;
   msg.header.stamp = ros::Time::now();
 
+#if MAPLOADER_DEBUG
   std::cout << "[DEBUG] [map_loader]: Read map "
             << load_parameters.image_file_name << ": " << msg.info.width
             << " X " << msg.info.height << " map @ " << msg.info.resolution
             << " m/cell" << std::endl;
+#endif
 
   map = msg;
   map_pub_.publish(msg);
