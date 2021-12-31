@@ -45,48 +45,55 @@
 #include "ros/ros.h"
 #include "yaml-cpp/yaml.h"
 
-namespace ompl_2d_rviz_visualizer_ros {
+namespace ompl_2d_rviz_visualizer_ros
+{
+enum MapMode
+{
+  TRINARY,
+  SCALE,
+  RAW
+};
 
-enum MapMode { TRINARY, SCALE, RAW };
-
-struct LoadParameters {
+struct LoadParameters
+{
   std::string image_file_name;
-  double resolution{0};
-  std::vector<double> origin{0, 0, 0};
+  double resolution{ 0 };
+  std::vector<double> origin{ 0, 0, 0 };
   double free_thresh;
   double occupied_thresh;
   MapMode mode;
   bool negate;
 };
 
-class MapLoader {
- public:
-  MapLoader(const std::string& map_frame_name,
-            const std::string& map_topic_name,
+class MapLoader
+{
+public:
+  MapLoader(const std::string& map_frame_name, const std::string& map_topic_name,
             ros::NodeHandle nh = ros::NodeHandle("~"));
 
   ~MapLoader();
 
-  bool loadMapFromYaml(const std::string& path_to_yaml,
-                       nav_msgs::OccupancyGrid& ogm_map);
+  bool loadMapFromYaml(const std::string& path_to_yaml, nav_msgs::OccupancyGrid& ogm_map);
 
- private:
+private:
   template <typename T>
-  T yamlGetValue(const YAML::Node& node, const std::string& key) {
-    try {
+  T yamlGetValue(const YAML::Node& node, const std::string& key)
+  {
+    try
+    {
       return node[key].as<T>();
-    } catch (YAML::Exception& e) {
+    }
+    catch (YAML::Exception& e)
+    {
       std::stringstream ss;
       ss << "Failed to parse YAML tag '" << key << "' for reason: " << e.msg;
       throw YAML::Exception(e.mark, ss.str());
     }
   }
 
-  bool loadMapYaml(LoadParameters& load_parameters,
-                   const std::string& path_to_yaml);
+  bool loadMapYaml(LoadParameters& load_parameters, const std::string& path_to_yaml);
 
-  void loadMapFromFile(nav_msgs::OccupancyGrid& map,
-                       const LoadParameters& load_parameters);
+  void loadMapFromFile(nav_msgs::OccupancyGrid& map, const LoadParameters& load_parameters);
 
   const char* mapModeToString(MapMode map_mode);
   MapMode mapModeFromString(std::string map_mode_name);

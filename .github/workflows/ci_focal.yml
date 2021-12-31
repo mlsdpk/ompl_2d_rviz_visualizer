@@ -1,0 +1,33 @@
+name: CI - Ubuntu Focal
+
+on: 
+  # direct pushes to protected branches are not supported
+  pull_request:
+  schedule:
+    # 7am UTC, 12am PDT
+    - cron:  '0 7 * * *'
+  # allow manually starting this workflow
+  workflow_dispatch:
+
+jobs:
+  industrial_ci:
+    name: ROS Focal ${{ matrix.ROS_DISTRO }} (${{ matrix.ROS_REPO }})
+    runs-on: ubuntu-20.04
+    strategy:
+      matrix: # matrix is the product of entries
+        ROS_DISTRO: [noetic]
+        ROS_REPO: [main, testing]
+    env:
+      CCACHE_DIR: "${{ github.workspace }}/.ccache" # directory for ccache (and how we enable ccache in industrial_ci)
+    steps:
+      - uses: actions/checkout@v2 # clone target repository
+      - uses: actions/cache@v2 # fetch/store the directory used by ccache before/after the ci run
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ matrix.ROS_DISTRO }}-${{ matrix.ROS_REPO }}-${{github.run_id}}
+          restore-keys: |
+            ccache-${{ matrix.ROS_DISTRO }}-${{ matrix.ROS_REPO }}-
+      - uses: 'ros-industrial/industrial_ci@master' # run industrial_ci
+        env:
+          ROS_DISTRO: ${{ matrix.ROS_DISTRO }}
+          ROS_REPO: ${{ matrix.ROS_REPO }}

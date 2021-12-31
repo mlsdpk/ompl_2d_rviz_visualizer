@@ -41,10 +41,11 @@ namespace ob = ompl::base;
 namespace og = ompl::geometric;
 namespace rvt = rviz_visual_tools;
 
-namespace ompl_2d_rviz_visualizer_ros {
-
-class RvizRenderer {
- public:
+namespace ompl_2d_rviz_visualizer_ros
+{
+class RvizRenderer
+{
+public:
   /**
    * @brief Constructor
    * @param base_frame common base for all visualization markers, usually
@@ -81,8 +82,7 @@ class RvizRenderer {
    * @param ns namespace of marker
    * @param id marker id
    */
-  bool renderState(const ob::State* state, const rvt::colors& color,
-                   const rvt::scales& scale, const std::string& ns,
+  bool renderState(const ob::State* state, const rvt::colors& color, const rvt::scales& scale, const std::string& ns,
                    std::size_t id = 0);
 
   /**
@@ -94,9 +94,8 @@ class RvizRenderer {
    * @param ns namespace of marker
    * @param id marker id
    */
-  bool renderState(const Eigen::Vector3d& point, const rvt::colors& color,
-                   const rvt::scales& scale, const std::string& ns,
-                   std::size_t id = 0);
+  bool renderState(const Eigen::Vector3d& point, const rvt::colors& color, const rvt::scales& scale,
+                   const std::string& ns, std::size_t id = 0);
 
   /**
    * @brief Render 2D geometric path on rviz. Path is basically a cylinder with
@@ -106,8 +105,7 @@ class RvizRenderer {
    * @param radius geometry of cylinder
    * @param ns namespace of marker
    */
-  bool renderPath(const og::PathGeometric& path, const rvt::colors& color,
-                  const double radius, const std::string& ns);
+  bool renderPath(const og::PathGeometric& path, const rvt::colors& color, const double radius, const std::string& ns);
 
   /**
    * @brief Render ompl planner data graph on rviz.
@@ -116,11 +114,10 @@ class RvizRenderer {
    * @param radius geometry of cylinder
    * @param ns namespace of marker
    */
-  bool renderGraph(const ob::PlannerDataPtr planner_data,
-                   const rvt::colors& color, const double radius,
+  bool renderGraph(const ob::PlannerDataPtr planner_data, const rvt::colors& color, const double radius,
                    const std::string& ns);
 
- private:
+private:
   /**
    * @brief Store marker namespace and id to be used later.
    * @param ns namespace of marker
@@ -137,10 +134,8 @@ class RvizRenderer {
    * @param ns namespace of marker
    * @param id marker id
    */
-  bool publishCylinder(const Eigen::Vector3d& point1,
-                       const Eigen::Vector3d& point2, const rvt::colors& color,
-                       const double radius, const std::string& ns,
-                       std::size_t id);
+  bool publishCylinder(const Eigen::Vector3d& point1, const Eigen::Vector3d& point2, const rvt::colors& color,
+                       const double radius, const std::string& ns, std::size_t id);
 
   /**
    * @brief Convert ompl abstract state to eigen vector3D.

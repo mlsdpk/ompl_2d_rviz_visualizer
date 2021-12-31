@@ -33,68 +33,74 @@
 
 #include <ompl_2d_rviz_visualizer_ros/map_loader.h>
 
-namespace ompl_2d_rviz_visualizer_ros {
-
-MapLoader::MapLoader(const std::string &map_frame_name,
-                     const std::string &map_topic_name, ros::NodeHandle nh)
-    : map_frame_name_{map_frame_name},
-      map_topic_name_{map_topic_name},
-      nh_{nh} {
+namespace ompl_2d_rviz_visualizer_ros
+{
+MapLoader::MapLoader(const std::string& map_frame_name, const std::string& map_topic_name, ros::NodeHandle nh)
+  : map_frame_name_{ map_frame_name }, map_topic_name_{ map_topic_name }, nh_{ nh }
+{
   map_pub_ = nh_.advertise<nav_msgs::OccupancyGrid>(map_topic_name, 1, true);
 }
 
-MapLoader::~MapLoader() {}
+MapLoader::~MapLoader()
+{
+}
 
-bool MapLoader::loadMapFromYaml(const std::string &path_to_yaml,
-                                nav_msgs::OccupancyGrid &map) {
+bool MapLoader::loadMapFromYaml(const std::string& path_to_yaml, nav_msgs::OccupancyGrid& map)
+{
   // first check path is empty or not
-  if (path_to_yaml.empty()) {
-    std::cerr << "[ERROR] [map_loader]: YAML file name is empty, can't load!"
-              << std::endl;
+  if (path_to_yaml.empty())
+  {
+    std::cerr << "[ERROR] [map_loader]: YAML file name is empty, can't load!" << std::endl;
     return false;
   }
 
-  std::cout << "[ INFO] [map_loader]: Loading yaml file: " << path_to_yaml
-            << std::endl;
+  std::cout << "[ INFO] [map_loader]: Loading yaml file: " << path_to_yaml << std::endl;
 
   LoadParameters load_parameters;
-  try {
+  try
+  {
     loadMapYaml(load_parameters, path_to_yaml);
-  } catch (YAML::Exception &e) {
-    std::cerr << "[ERROR] [map_loader]: Failed processing YAML file "
-              << path_to_yaml << " at position (" << e.mark.line << ":"
-              << e.mark.column << ") for reason: " << e.what() << std::endl;
+  }
+  catch (YAML::Exception& e)
+  {
+    std::cerr << "[ERROR] [map_loader]: Failed processing YAML file " << path_to_yaml << " at position (" << e.mark.line
+              << ":" << e.mark.column << ") for reason: " << e.what() << std::endl;
     return false;
-  } catch (std::exception &e) {
-    std::cerr
-        << "[ERROR] [map_loader]: Failed to parse map YAML loaded from file "
-        << path_to_yaml << " for reason: " << e.what() << std::endl;
+  }
+  catch (std::exception& e)
+  {
+    std::cerr << "[ERROR] [map_loader]: Failed to parse map YAML loaded from file " << path_to_yaml
+              << " for reason: " << e.what() << std::endl;
     return false;
   }
 
-  try {
+  try
+  {
     loadMapFromFile(map, load_parameters);
-  } catch (std::exception &e) {
-    std::cerr << "[ERROR] [map_io]: Failed to load image file "
-              << load_parameters.image_file_name << " for reason: " << e.what()
-              << std::endl;
+  }
+  catch (std::exception& e)
+  {
+    std::cerr << "[ERROR] [map_io]: Failed to load image file " << load_parameters.image_file_name
+              << " for reason: " << e.what() << std::endl;
     return false;
   }
 
   return true;
 }
 
-bool MapLoader::loadMapYaml(LoadParameters &load_parameters,
-                            const std::string &path_to_yaml) {
+bool MapLoader::loadMapYaml(LoadParameters& load_parameters, const std::string& path_to_yaml)
+{
   YAML::Node doc = YAML::LoadFile(path_to_yaml);
 
   auto image_file_name = yamlGetValue<std::string>(doc, "image");
-  if (image_file_name.empty()) {
+  if (image_file_name.empty())
+  {
     throw YAML::Exception(doc["image"].Mark(), "The image tag was empty.");
   }
 
   boost::filesystem::path mapfpath(image_file_name);
-  if (!mapfpath.is_absolute()) {
+  if (!mapfpath.is_absolute())
+  {
     boost::filesystem::path dir(path_to_yaml);
     dir = dir.parent_path();
     mapfpath = dir / mapfpath;
@@ -105,61 +111,57 @@ bool MapLoader::loadMapYaml(LoadParameters &load_parameters,
 
   load_parameters.resolution = yamlGetValue<double>(doc, "resolution");
   load_parameters.origin = yamlGetValue<std::vector<double>>(doc, "origin");
-  if (load_parameters.origin.size() != 3) {
-    throw YAML::Exception(
-        doc["origin"].Mark(),
-        "value of the 'origin' tag should have 3 elements, not " +
-            std::to_string(load_parameters.origin.size()));
+  if (load_parameters.origin.size() != 3)
+  {
+    throw YAML::Exception(doc["origin"].Mark(), "value of the 'origin' tag should have 3 elements, not " +
+                                                    std::to_string(load_parameters.origin.size()));
   }
 
   load_parameters.free_thresh = yamlGetValue<double>(doc, "free_thresh");
-  load_parameters.occupied_thresh =
-      yamlGetValue<double>(doc, "occupied_thresh");
+  load_parameters.occupied_thresh = yamlGetValue<double>(doc, "occupied_thresh");
 
   auto map_mode_node = doc["mode"];
-  if (!map_mode_node.IsDefined()) {
+  if (!map_mode_node.IsDefined())
+  {
     load_parameters.mode = MapMode::TRINARY;
-  } else {
+  }
+  else
+  {
     load_parameters.mode = mapModeFromString(map_mode_node.as<std::string>());
   }
 
-  try {
+  try
+  {
     load_parameters.negate = yamlGetValue<int>(doc, "negate");
-  } catch (YAML::Exception &) {
+  }
+  catch (YAML::Exception&)
+  {
     load_parameters.negate = yamlGetValue<bool>(doc, "negate");
   }
 
 #if MAPLOADER_DEBUG
-  std::cout << "[DEBUG] [map_loader]: resolution: "
-            << load_parameters.resolution << std::endl;
-  std::cout << "[DEBUG] [map_loader]: origin[0]: " << load_parameters.origin[0]
-            << std::endl;
-  std::cout << "[DEBUG] [map_loader]: origin[1]: " << load_parameters.origin[1]
-            << std::endl;
-  std::cout << "[DEBUG] [map_loader]: origin[2]: " << load_parameters.origin[2]
-            << std::endl;
-  std::cout << "[DEBUG] [map_loader]: free_thresh: "
-            << load_parameters.free_thresh << std::endl;
-  std::cout << "[DEBUG] [map_loader]: occupied_thresh: "
-            << load_parameters.occupied_thresh << std::endl;
-  std::cout << "[DEBUG] [map_loader]: mode: "
-            << mapModeToString(load_parameters.mode) << std::endl;
-  std::cout << "[DEBUG] [map_loader]: negate: " << load_parameters.negate
-            << std::endl;  // NOLINT
+  std::cout << "[DEBUG] [map_loader]: resolution: " << load_parameters.resolution << std::endl;
+  std::cout << "[DEBUG] [map_loader]: origin[0]: " << load_parameters.origin[0] << std::endl;
+  std::cout << "[DEBUG] [map_loader]: origin[1]: " << load_parameters.origin[1] << std::endl;
+  std::cout << "[DEBUG] [map_loader]: origin[2]: " << load_parameters.origin[2] << std::endl;
+  std::cout << "[DEBUG] [map_loader]: free_thresh: " << load_parameters.free_thresh << std::endl;
+  std::cout << "[DEBUG] [map_loader]: occupied_thresh: " << load_parameters.occupied_thresh << std::endl;
+  std::cout << "[DEBUG] [map_loader]: mode: " << mapModeToString(load_parameters.mode) << std::endl;
+  std::cout << "[DEBUG] [map_loader]: negate: " << load_parameters.negate << std::endl;  // NOLINT
 #endif
 
   return true;
 }
 
-void MapLoader::loadMapFromFile(nav_msgs::OccupancyGrid &map,
-                                const LoadParameters &load_parameters) {
-  SDL_Surface *img;
+void MapLoader::loadMapFromFile(nav_msgs::OccupancyGrid& map, const LoadParameters& load_parameters)
+{
+  SDL_Surface* img;
 
   // Load the image using SDL. If we get NULL back, the image load failed.
-  if (!(img = IMG_Load(load_parameters.image_file_name.c_str()))) {
+  if (!(img = IMG_Load(load_parameters.image_file_name.c_str())))
+  {
     std::string errmsg = std::string("failed to open image file \"") +
-                         std::string(load_parameters.image_file_name.c_str()) +
-                         std::string("\": ") + IMG_GetError();
+                         std::string(load_parameters.image_file_name.c_str()) + std::string("\": ") + IMG_GetError();
     throw std::runtime_error(errmsg);
   }
 
@@ -194,13 +196,16 @@ void MapLoader::loadMapFromFile(nav_msgs::OccupancyGrid &map,
   unsigned char *pixels, *p;
   int color_sum, alpha;
   double occ;
-  pixels = (unsigned char *)(img->pixels);
-  for (auto j = 0; j < msg.info.height; j++) {
-    for (auto i = 0; i < msg.info.width; i++) {
+  pixels = (unsigned char*)(img->pixels);
+  for (auto j = 0; j < msg.info.height; j++)
+  {
+    for (auto i = 0; i < msg.info.width; i++)
+    {
       // Compute mean of RGB for this pixel
       p = pixels + j * rowstride + i * n_channels;
       color_sum = 0;
-      for (auto k = 0; k < avg_channels; k++) color_sum += *(p + (k));
+      for (auto k = 0; k < avg_channels; k++)
+        color_sum += *(p + (k));
       occ = color_sum / static_cast<double>(avg_channels);
 
       if (n_channels == 1)
@@ -208,14 +213,19 @@ void MapLoader::loadMapFromFile(nav_msgs::OccupancyGrid &map,
       else
         alpha = *(p + n_channels - 1);
 
-      if (load_parameters.negate) occ = 255.0 - occ;
+      if (load_parameters.negate)
+        occ = 255.0 - occ;
 
       int8_t map_cell;
-      switch (load_parameters.mode) {
+      switch (load_parameters.mode)
+      {
         case MapMode::RAW:
-          if (OCC_GRID_FREE <= occ && occ <= OCC_GRID_OCCUPIED) {
+          if (OCC_GRID_FREE <= occ && occ <= OCC_GRID_OCCUPIED)
+          {
             map_cell = static_cast<int8_t>(occ);
-          } else {
+          }
+          else
+          {
             map_cell = OCC_GRID_UNKNOWN;
           }
           break;
@@ -224,28 +234,38 @@ void MapLoader::loadMapFromFile(nav_msgs::OccupancyGrid &map,
           // If negate is true, we consider blacker pixels free, and whiter
           // pixels occupied.  Otherwise, it's vice versa.
           occ = (255 - occ) / 255.0;
-          if (load_parameters.occupied_thresh < occ) {
+          if (load_parameters.occupied_thresh < occ)
+          {
             map_cell = OCC_GRID_OCCUPIED;
-          } else if (occ < load_parameters.free_thresh) {
+          }
+          else if (occ < load_parameters.free_thresh)
+          {
             map_cell = OCC_GRID_FREE;
-          } else {
+          }
+          else
+          {
             map_cell = OCC_GRID_UNKNOWN;
           }
           break;
 
         case MapMode::SCALE:
           occ = (255 - occ) / 255.0;
-          if (alpha < 1.0) {
+          if (alpha < 1.0)
+          {
             map_cell = OCC_GRID_UNKNOWN;
-          } else if (load_parameters.occupied_thresh < occ) {
+          }
+          else if (load_parameters.occupied_thresh < occ)
+          {
             map_cell = OCC_GRID_OCCUPIED;
-          } else if (occ < load_parameters.free_thresh) {
+          }
+          else if (occ < load_parameters.free_thresh)
+          {
             map_cell = OCC_GRID_FREE;
-          } else {
+          }
+          else
+          {
             map_cell = std::rint((occ - load_parameters.free_thresh) /
-                                 (load_parameters.occupied_thresh -
-                                  load_parameters.free_thresh) *
-                                 100.0);
+                                 (load_parameters.occupied_thresh - load_parameters.free_thresh) * 100.0);
           }
           break;
 
@@ -263,18 +283,18 @@ void MapLoader::loadMapFromFile(nav_msgs::OccupancyGrid &map,
   msg.header.stamp = ros::Time::now();
 
 #if MAPLOADER_DEBUG
-  std::cout << "[DEBUG] [map_loader]: Read map "
-            << load_parameters.image_file_name << ": " << msg.info.width
-            << " X " << msg.info.height << " map @ " << msg.info.resolution
-            << " m/cell" << std::endl;
+  std::cout << "[DEBUG] [map_loader]: Read map " << load_parameters.image_file_name << ": " << msg.info.width << " X "
+            << msg.info.height << " map @ " << msg.info.resolution << " m/cell" << std::endl;
 #endif
 
   map = msg;
   map_pub_.publish(msg);
 }
 
-const char *MapLoader::mapModeToString(MapMode map_mode) {
-  switch (map_mode) {
+const char* MapLoader::mapModeToString(MapMode map_mode)
+{
+  switch (map_mode)
+  {
     case MapMode::TRINARY:
       return "trinary";
     case MapMode::SCALE:
@@ -286,18 +306,27 @@ const char *MapLoader::mapModeToString(MapMode map_mode) {
   }
 }
 
-MapMode MapLoader::mapModeFromString(std::string map_mode_name) {
-  for (auto &c : map_mode_name) {
+MapMode MapLoader::mapModeFromString(std::string map_mode_name)
+{
+  for (auto& c : map_mode_name)
+  {
     c = tolower(c);
   }
 
-  if (map_mode_name == "scale") {
+  if (map_mode_name == "scale")
+  {
     return MapMode::SCALE;
-  } else if (map_mode_name == "raw") {
+  }
+  else if (map_mode_name == "raw")
+  {
     return MapMode::RAW;
-  } else if (map_mode_name == "trinary") {
+  }
+  else if (map_mode_name == "trinary")
+  {
     return MapMode::TRINARY;
-  } else {
+  }
+  else
+  {
     throw std::invalid_argument("map_mode_name");
   }
 }

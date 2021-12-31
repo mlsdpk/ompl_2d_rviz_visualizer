@@ -1,4 +1,8 @@
-# OMPL 2D Rviz Visualizer
+OMPL 2D Rviz Visualizer
+=====
+[![License](https://img.shields.io/badge/License-BSD%202--Clause-blue.svg)](https://opensource.org/licenses/BSD-2-Clause)
+![Clang Format](https://github.com/mlsdpk/ompl_2d_rviz_visualizer/actions/workflows/clang_format.yml/badge.svg)
+![CI Focal](https://github.com/mlsdpk/ompl_2d_rviz_visualizer/actions/workflows/ci_focal.yml/badge.svg)
 
 Visualizing, animating and debugging Open Motion Planning Library (OMPL) algorithms in ROS Rviz. The package allows OMPL planners to find paths in R^2 state space with path minimizing objectives and utilizes the occupancy grid maps for collision checking. We have also added a rviz panel plugin to interface with OMPL.
 
@@ -8,7 +12,6 @@ Visualizing, animating and debugging Open Motion Planning Library (OMPL) algorit
   <img src="assets/map_with_many_homotopy_classes.gif" width="24%" />
   <img src="assets/map_with_single_narrow_passage_gap.gif" width="24%" />
 </p>
-
 
 ## Installation
 

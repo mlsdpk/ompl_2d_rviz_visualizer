@@ -36,16 +36,16 @@
 
 namespace ob = ompl::base;
 
-namespace ompl_2d_rviz_visualizer_ros {
-
-class CollisionChecker {
- public:
-  CollisionChecker(std::shared_ptr<nav_msgs::OccupancyGrid> ogm_map)
-      : map_{std::move(ogm_map)} {
-    if (!map_utils::getBounds(min_bound_x_, max_bound_x_, min_bound_y_,
-                              max_bound_y_, *map_)) {
-      std::cerr << "Fail to generate bounds in the occupancy grid map."
-                << std::endl;
+namespace ompl_2d_rviz_visualizer_ros
+{
+class CollisionChecker
+{
+public:
+  CollisionChecker(std::shared_ptr<nav_msgs::OccupancyGrid> ogm_map) : map_{ std::move(ogm_map) }
+  {
+    if (!map_utils::getBounds(min_bound_x_, max_bound_x_, min_bound_y_, max_bound_y_, *map_))
+    {
+      std::cerr << "Fail to generate bounds in the occupancy grid map." << std::endl;
       exit(1);
     }
 
@@ -58,8 +58,10 @@ class CollisionChecker {
 
   ~CollisionChecker();
 
-  bool isValid(const ob::State* state) {
-    if (!state) {
+  bool isValid(const ob::State* state)
+  {
+    if (!state)
+    {
       throw std::runtime_error("No state found for vertex");
     }
 
@@ -73,20 +75,23 @@ class CollisionChecker {
     return isValid(x, y);
   }
 
-  bool isValid(double x, double y) {
+  bool isValid(double x, double y)
+  {
     // find cell index in the map
     unsigned int idx = mapToCellIndex(x, y);
     auto occ = map_->data[idx];
 
-    if (occ == OCC_GRID_FREE) return true;
+    if (occ == OCC_GRID_FREE)
+      return true;
     return false;
   }
 
- private:
-  unsigned int mapToCellIndex(double x, double y) {
+private:
+  unsigned int mapToCellIndex(double x, double y)
+  {
     // check if the state is within bounds
-    if (!(x >= min_bound_x_ && x <= max_bound_x_ && y >= min_bound_y_ &&
-          y <= max_bound_y_)) {
+    if (!(x >= min_bound_x_ && x <= max_bound_x_ && y >= min_bound_y_ && y <= max_bound_y_))
+    {
       throw std::runtime_error("State must be within the bounds.");
     }
 
